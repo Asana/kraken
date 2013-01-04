@@ -31,62 +31,7 @@
     <!-- MAIN CONTENT -->
     <div id="main_content_wrap" class="outer">
       <section id="main_content" class="inner">
-        <h3>Overview</h3>
-
-<p>Kraken is a distributed pubsub server that is designed to handle the performance demands of highly collaborative realtime apps like Asana.</p>
-
-<h3>Building and Running Kraken</h3>
-
-<p>Packaged versions of Kraken are coming soon, but for now you will need to install from source.</p>
-
-<p>Kraken is written in Erlang, so you will need to run Kraken on a machine with Erlang installed. We recommend running it with Erlang R15B02 and above, but it probably works with older versions of Erlang as well.</p>
-
-<p>Download the latest Kraken release (or clone the git project), and then use the following command from the root of the Kraken directory to build Kraken for the first time:</p>
-
-<pre><code>./rebar get-deps compile
-</code></pre>
-
-<p>You can now run Kraken in the foreground like this:</p>
-
-<pre><code>bin/kraken run
-</code></pre>
-
-<p>This will start Kraken up with the default config. It will listen to new TCP connections on port 12355.</p>
-
-<h3>Kraken clients</h3>
-
-<p>Kraken currently includes two official clients, for Erlang and Node.js. However, the default Kraken protocol is based on the memcached protocol, so it shouldn't take very long to create a client in the language of your choice. If you do, please contribute it back to Kraken!</p>
-
-<p>Here is an example of working with Kraken using the Node.js client:</p>
-
-<pre><code>js&gt; kraken1 = new Kraken("localhost", 12355);
-js&gt; kranen2 = new Kraken("localhost", 12355);
-js&gt; kraken1.subscribe(["topicA", "topicB"]);
-js&gt; kraken2.publish(["topicA"], "hi there!");
-js&gt; console.log(kraken1.receiveMessages());
-js&gt; kraken2.unsubscribe(["topicA"]);
-</code></pre>
-
-<h3>How do you use Kraken to build Realtime web apps</h3>
-
-<p>Kraken was designed to forward data invalidation messages between application servers. It's up to the application designer to figure out how to scope these messages to topics, and what they should contain. For example, a simple TODO list app may have topics corresponding to each of the lists that a user can see. This app would publish invalidation messages corresponding to the ids of tasks that have changed through the topics corresponding to the lists that the task is and was a member of. When other application servers receive these messages, they would reload the state of the tasks referenced in the invalidations messages to ensure they are still up to date.</p>
-
-<h3>How does Kraken scale?</h3>
-
-<p>As far as we know, very well. Kraken has been powering the Asana service since mid 2010, and has yet to crash or fail in any way. At Asana, we have 10s of thousands of clients connected to each Kraken node.</p>
-
-<p>There are two ways of scaling Kraken beyond a single machine:</p>
-
-<ol>
-<li><p>You can shard the topic space so that each machine is responsible for a portion of the topics. This will typically decrease the total number of messages that a given node needs to process and reduce the amount of memory required to keep track of all the routing information.</p></li>
-<li><p>You can run Kraken nodes that proxy to other Kraken nodes. The proxy nodes will aggregate connections and routing information from their clients and forward on the minimal amount of information necessary to ensure they stay up to date. The proxy nodes then become a single client to the Kraken nodes that they connect to, substantially decreasing the total number of clients and messages that any single Kraken node needs to handle!</p></li>
-</ol><h3>Authors and Contributors</h3>
-
-<p>Kraken was originally written at Asana by Kris Rasmussen (<a href="https://github.com/krisr" class="user-mention">@krisr</a>).</p>
-
-<h3>Support or Contact</h3>
-
-<p>Having trouble with Kraken? Check out the documentation at <a href="https://github.com/Asana/Kraken/wiki">https://github.com/Asana/Kraken/wiki</a> or file an issue at <a href="https://github.com/Asana/Kraken/issues">https://github.com/Asana/Kraken/issues</a> and we’ll help you sort it out.</p>
+        <h1>TODO</h1>
       </section>
     </div>
 
