@@ -1,0 +1,29 @@
+{application, kraken,
+  [{description, "Kraken Pubsub Server"},
+   {vsn, "0.80"},
+   {modules, [
+     octopus,
+     octopus_app,
+     octopus_queue,
+     octopus_router,
+     octopus_router_shard,
+     octopus_sup,
+     octopus_tcp_server,
+     octopus_tcp_acceptor,
+     octopus_tcp_connection,
+     octopus_memcached,
+     octopus_util,
+     octopus_error_logger_h
+   ]},
+   {registered, []},
+   {mod, {kraken_app, []}},
+   {env, [
+     {listen_ip, any},
+     {tcp_server_port, 12355},
+     {max_tcp_clients, 1000},
+     {router_min_fanout_to_warn, 1000},
+     {router_min_publish_to_topics_to_warn, 1000},
+     {num_router_shards, 4}
+   ]},
+   {applications, [kernel, stdlib, log4erl]}]}.
+

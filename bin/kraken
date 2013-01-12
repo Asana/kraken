@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Do not set -o nounset because it will prevent the usage information from showing.
+set -o errexit
+
+# Get path to script
+ROOT="$(cd "${0%/*}" 2>/dev/null; echo "$PWD"/"${0##*/}")"
+cd `dirname $ROOT`/..
+
+PA="$PWD/ebin $PWD/deps/*/ebin"
+HOSTNAME=`hostname -s`
+
+case $1 in
+
+  run)
+    shift
+    exec erl \
+      +Bd \
+      -pa $PA \
+      -sname kraken \
+      -boot start_sasl \
+      -s kraken \
+      "$@"
+    ;;
+
+  start)
+    shift
+    erl \
+      -pa $PA \
+      -sname kraken \
+      -boot start_sasl \
+      -s kraken \
+      -detached \
+      "$@"
+    # Erlang will return immediatly in detached mode
+    # so we run the kraken_ctl status module to confirm
+    # that everything started up correctly. We sleep
+    # 1 second before starting to ensure the erlang app
+    # has time to start.
+    sleep 1
+    exec erl \
+      -noshell \
+      -pa $PA \
+      -sname kraken_ctl \
+      -s kraken_ctl status "kraken@$HOSTNAME" \
+      "$@"
+    ;;
+
+  stop)
+    shift
+    exec erl \
+      -noshell \
+      -pa $PA \
+      -sname kraken_ctl \
+      -s kraken_ctl stop "kraken@$HOSTNAME" \
+      "$@"
+    ;;
+
+  status)
+    shift
+    exec erl \
+      -noshell \
+      -pa $PA \
+      -sname kraken_ctl \
+      -s kraken_ctl status "kraken@$HOSTNAME" \
+      "$@"
+    ;;
+
+  change_log_level)
+    # Accepts one argument - a log level. Normally debug or error.
+    shift
+    exec erl \
+      -noshell \
+      -pa $PA \
+      -sname kraken_ctl \
+      -s kraken_ctl change_log_level "kraken@$HOSTNAME" \
+      "$@"
+    ;;
+
+  dump_queues)
+    shift
+    exec erl \
+      -noshell \
+      -pa $PA \
+      -sname kraken_ctl \
+      -s kraken_ctl dump_queues "kraken@$HOSTNAME" \
+      "$@"
+    ;;
+
+  dump_queue_topics)
+    # Accepts one argument - a queue pid ("<aaaa.bb.cc>")
+    shift
+    exec erl \
+      -noshell \
+      -pa $PA \
+      -sname kraken_ctl \
+      -s kraken_ctl dump_queue_topics "kraken@$HOSTNAME" \
+      "$@"
+    ;;
+
+  dump_topics)
+    shift
+    exec erl \
+      -noshell \
+      -pa $PA \
+      -sname kraken_ctl \
+      -s kraken_ctl dump_topics "kraken@$HOSTNAME" \
+      "$@"
+    ;;
+
+  *)
+    echo "Usage: $0 {start|stop|run|status|change_log_level|dump_queues|dump_queue_topics|dump_topics}"
+    echo ""
+    exit 1
+esac
+
+exit 0
+

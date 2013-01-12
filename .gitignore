@@ -1,0 +1,27 @@
+ebin
+doc
+deps
+_test
+.eunit
+
+# ignore compiled files
+*.beam
+
+# ignore vim files
+*~
+*.swp
+*.swo
+*.swn
+*.swm
+
+# ignore emacs files
+\#*
+.\#*
+
+# ignore IntelliJ files
+*.iws
+/admin/intellij/out/
+
+# Random mac files
+.DS_Store
+
