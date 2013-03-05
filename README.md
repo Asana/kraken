@@ -97,7 +97,7 @@ Note that Erlang requires you to exclude the extension when you specify the conf
 
 Kraken currently includes two official clients for Erlang and Node.js. The [Kraken protocol](https://github.com/Asana/Kraken/blob/master/src/kraken_memcached.erl) is based on the Memcached protocol, so it shouldn't take very long to create a client in the language of your choice. Please let us know if you create a new client!
 
-Here is an example of working with Kraken using the Node.js client:
+Here is an example of working with Kraken using the [Node.js client](https://github.com/Asana/kraken-node-client):
 
     js> kraken1 = new Kraken("localhost", 12355);
     js> kranen2 = new Kraken("localhost", 12355);
