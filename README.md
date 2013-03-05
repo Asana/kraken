@@ -65,7 +65,7 @@ Before running Kraken in production, you will want to customize some of the conf
 
 * **pid_file**: If specified, then the system process id of the erlang node will be written to this file.
 * **listen_ip**: The IP address for the Kraken server to listen to new connections on.
-* **tcp_server_port**: The Port for the Kraken server to listen to new connections on.
+* **tcp_server_port**: The port for the Kraken server to listen to new connections on.
 * **num_router_shards**: The number of router shards to run. A good starting point is 2x the number of cores on the machine.
 * **router_min_fanout_to_warn**: Octopus will log warnings if a message ends up being distributed to this many or more subscribers.
 
@@ -77,7 +77,7 @@ You can specify Kraken options at the command line when starting Kraken as follo
 
 You need to prefix each argument with "-kraken" to let erlang know that you are customizing the kraken application environment. Erlang lets you run multiple applications on a single node.
 
-**Sepcifying options in a config file**
+**Specifying options in a config file**
 
 Kraken options can also be specified in an erlang config file. Here is an example config file:
 
