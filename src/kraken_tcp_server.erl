@@ -38,6 +38,7 @@
 -define(TCP_OPTIONS, [
     binary,
     {packet, line},
+    {backlog, 1024},
     {active, false},
     {reuseaddr, true}]).
 
