@@ -20,8 +20,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 %% API
--export([start_link/2, start_queue_link/1, subscribe/2, unsubscribe/2, publish/3,
-         topics/1, topic_status/0, status/0, queue_pids/0]).
+-export([start_link/3, start_queue_link/1, subscribe/2, unsubscribe/2, publish/3,
+         topics/1, topic_status/0, status/0, queue_pids/0, register/1]).
 
 %%%-----------------------------------------------------------------
 %%% Definitions
@@ -39,8 +39,9 @@
 %%% API
 %%%-----------------------------------------------------------------
 
-start_link(Sup, NumRouters) ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [Sup, NumRouters], []).
+start_link(Sup, NumRouters, ProxyToNode) ->
+  gen_server:start_link(
+      {local, ?SERVER}, ?MODULE, [Sup, NumRouters, ProxyToNode], []).
 
 %% @doc Creates a new kraken_queue, links it to the calling process, and
 %% registers it with the router so that the router will know when it exits
@@ -51,10 +52,15 @@ start_queue_link(Name) ->
   % TODO: Consider using another supervisor to monitor these in addition to monitoring
   % them ourself to be more OTP compliant.
   {ok, QPid} = kraken_queue:start_link(Name),
+  register(QPid),
+  {ok, QPid}.
+
+% Only used for the proxy.
+register(QPid) ->
   router_map(fun(Router) ->
     gen_server:cast(Router, {register, QPid})
   end),
-  {ok, QPid}.
+  ok.
 
 %% @doc Subscribes QPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
@@ -162,23 +168,20 @@ status() ->
 %%% Callbacks
 %%%-----------------------------------------------------------------
 
-init([Sup, NumRouters]) ->
-  self() ! {start_routers, Sup, NumRouters},
+init([Sup, NumRouters, ProxyToNode]) ->
+  % Wait for the ProxyToNode to become available before continuing.
+  connect_to_proxy_to_node(ProxyToNode),
+  self() ! {start_routers, Sup, NumRouters, ProxyToNode},
   {ok, #state{routers=array:new(NumRouters)}}.
 
 handle_call(state, _From, State) ->
   {reply, State, State}.
 
-% Cast is ok for register because it's ok if we are not notified immediatly
-% when a QPid process dies.
-handle_cast({register, QPid}, State=#state{routers=Routers}) ->
-  array:map(fun(Router) ->
-    gen_server:cast(Router, {register, QPid})
-  end, Routers),
-  {noreply, State}.
+handle_cast(Cast, State) ->
+  {stop, {unhandled_cast, Cast}, State}.
 
-handle_info({start_routers, Sup, NumRouters}, State) ->
-  {noreply, start_routers(Sup, NumRouters, State)};
+handle_info({start_routers, Sup, NumRouters, ProxyToNode}, State) ->
+  {noreply, start_routers(Sup, NumRouters, ProxyToNode, State)};
 
 handle_info({'DOWN', _MonitorRef, process, Pid, Info}, State) ->
   % Don't need to log here since OTP will already log for us.
@@ -198,12 +201,28 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Private Utility
 %%%-----------------------------------------------------------------
 
-start_routers(_Sup, 0, State) ->
+connect_to_proxy_to_node(ProxyToNode) ->
+  case ProxyToNode of
+    undefined -> ok;
+    _ ->
+      case net_kernel:connect_node(ProxyToNode) of
+        true -> ok;
+        false ->
+          log4erl:error(
+              "Unable to connect to proxy to node ~p, retrying...", [ProxyToNode]),
+          receive
+          after 1000 ->
+            connect_to_proxy_to_node(ProxyToNode)
+          end
+      end
+  end.
+
+start_routers(_Sup, 0, _ProxyToNode, State) ->
   State;
-start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers}) ->
+start_routers(Sup, Count, ProxyToNode, State=#state{num_routers=NumRouters, routers=Routers}) ->
   {ok, NewRouter} = supervisor:start_child(Sup, {
     {kraken_router_shard, self(), Count},
-    {kraken_router_shard, start_link, []},
+    {kraken_router_shard, start_link, [ProxyToNode]},
     % Temporary because we DO not want the supervisor to restart them. The router
     % will spawn new router shards whenever it restarts.
     temporary,
@@ -217,6 +236,7 @@ start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers})
   start_routers(
       Sup,
       Count-1,
+      ProxyToNode,
       State#state{
           num_routers=NumRouters+1,
           routers=array:set(Count-1, NewRouter, Routers)}).

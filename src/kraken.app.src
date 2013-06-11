@@ -18,11 +18,31 @@
    {registered, []},
    {mod, {kraken_app, []}},
    {env, [
+     % The ip address to bind to and accept new connections on. Set to any
+     % (default) to accept connections on all interfaces.
      {listen_ip, any},
+
+     % The port to bind to and accept new connections on.
      {tcp_server_port, 12355},
+
+     % The maximum number of TCP client connections allowed. New connections
+     % will be dropped if the number of tcp connections exceeds this.
      {max_tcp_clients, 1000},
+
+     % Set this to the name of another erlang kraken node to make this node
+     % act like a proxy and aggregate and forward requests to the remote node.
+     {proxy_to_node, undefined},
+
+     % If a message fans out to more than this many client queues, then a
+     % warning is logged.
      {router_min_fanout_to_warn, 1000},
+
+     % If a message is published to more than this number of topics, then a
+     % warning is logged.
      {router_min_publish_to_topics_to_warn, 1000},
+
+     % The number of router shard processes to launch. This should be set to
+     % a low multiple of the number of cores on the server.
      {num_router_shards, 4}
    ]},
    {applications, [kernel, stdlib, log4erl]}]}.

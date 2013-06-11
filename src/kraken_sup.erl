@@ -30,10 +30,11 @@ init([]) ->
   {ok, TcpServerPort} = application:get_env(tcp_server_port),
   {ok, MaxTcpClients} = application:get_env(max_tcp_clients),
   {ok, NumRouterShards} = application:get_env(num_router_shards),
+  {ok, ProxyToNode} = application:get_env(proxy_to_node),
 
   PubsubRouter = {
     kraken_router,
-    {kraken_router, start_link, [self(), NumRouterShards]},
+    {kraken_router, start_link, [self(), NumRouterShards, ProxyToNode]},
     permanent, 5000, worker, [kraken_router]},
 
   PubsubTcpServer = {
