@@ -128,3 +128,9 @@ Kraken was originally written by Kris Rasmussen (@krisr) at [Asana](http://www.a
 
 ### Support or Contact
 Having trouble with Kraken? Check out the documentation at https://github.com/Asana/Kraken/wiki or file an issue at https://github.com/Asana/Kraken/issues and we’ll help you sort it out.
+
+### Current Development
+
+* **Retroactive Subscription**: Sometimes clients want to subscribe to topics retroactively and receive messages that have already flown through the system.
+This is useful for situations where clients want to avoid repeated synchonous roundtrips to kraken as the set of topics they are interested in expands,
+but don't want to miss out on messages that get sent between the times when a subscription is needed and when the batch-subscription is actually established.
