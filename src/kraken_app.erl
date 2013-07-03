@@ -57,6 +57,7 @@ start(_Type, _StartArgs) ->
       File
   end,
   {ok, Pid} = kraken_sup:start_link(),
+  log4erl:warn("Kraken App Started"),
   {ok, Pid, PidFile}.
 
 %% @spec stop(_State) -> ServerRet
