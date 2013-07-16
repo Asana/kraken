@@ -23,6 +23,7 @@
 -export([start_link/2, start_queue_link/1, subscribe/2, unsubscribe/2, publish/3,
          topics/1, topic_status/0, status/0, queue_pids/0]).
 
+-compile(export_all).
 %%%-----------------------------------------------------------------
 %%% Definitions
 %%%-----------------------------------------------------------------
@@ -55,6 +56,18 @@ start_queue_link(Name) ->
     gen_server:cast(Router, {register, QPid})
   end),
   {ok, QPid}.
+
+%% @doc registers QPid so the retroction has a place to start from.
+%% The serial_number from each Router Shard gets stored in the waitresses horizon
+%%
+%% @spec register(QPid :: pid(), Topics :: [string()]) -> ok
+register(QPid) ->
+  %% router_topics_fold(fun(Router, RouterTopics, _Acc) ->
+  %%   % TODO: Consider doing this and unregister in parallel to improve performance
+  %%   kraken_router_shard:register(Router, QPid, RouterTopics)
+  %% end, undefined, Topics),
+  log4erl:debug("IN KRAKEN ROUTER REGISTER !!!!"),
+  ok.
 
 %% @doc Subscribes QPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.

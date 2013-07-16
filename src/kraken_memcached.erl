@@ -9,6 +9,17 @@
 %% Supported Operations:
 %%
 %% ---------------------------------------------------------------------------
+%% Request: "set register 0 0 0\r\n\r\n"
+%%
+%% Description:
+%%    Registers the client for retroactive subscriptions. Increments and then
+%%    stores the current serial number from each rouer shard in the waitress
+%%    that corresponds to that client.
+%%
+%% Response:
+%%    "STORED\r\n"
+%%
+%% ---------------------------------------------------------------------------
 %% Request: "set subscribe 0 0 <bytes>\r\n<Topic1> <Topic2> ... <TopicN>\r\n"
 %%
 %% Description:
@@ -127,6 +138,7 @@
 -define(SERVER_ERROR_RESP_PREFIX, <<"SERVER_ERROR ">>).
 
 %% Commands
+-define(REGISTER_COMMAND, <<"register">>).
 -define(SUBSCRIBE_COMMAND, <<"subscribe">>).
 -define(UNSUBSCRIBE_COMMAND, <<"unsubscribe">>).
 -define(PUBLISH_COMMAND, <<"publish">>).
@@ -234,6 +246,11 @@ handle_and_log_command(Command, Data, Socket, State) ->
 
 handle_command(?QUIT_COMMAND, empty, _Socket, State) ->
   {stop, State};
+
+handle_command(?REGISTER_COMMAND, Data, Socket, State=#state{qpid=QPid}) ->
+  kraken_router:register(QPid),
+  gen_tcp:send(Socket, ?STORED_RESP),
+  {ok, State};
 
 handle_command(?SUBSCRIBE_COMMAND, Data, Socket, State=#state{qpid=QPid}) ->
   Topics = binary:split(Data, <<" ">>, [global]),

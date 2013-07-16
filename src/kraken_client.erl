@@ -8,8 +8,10 @@
 %%%-----------------------------------------------------------------
 
 %% API
--export([connect/2, subscribe/2, unsubscribe/2, disconnect/1, publish/2,
+-export([connect/2, register/1, subscribe/2, unsubscribe/2, disconnect/1, publish/2,
          receive_messages/1, quit/1]).
+
+-compile(export_all).
 
 %%%-----------------------------------------------------------------
 %%% API
@@ -23,6 +25,9 @@ connect(Host, Port) ->
 
 disconnect(Socket) ->
   gen_tcp:close(Socket).
+
+register(Socket) ->
+  set_command(Socket, <<"register">>, <<>>).
 
 subscribe(Socket, Topics) ->
   topic_command(Socket, <<"subscribe">>, Topics).

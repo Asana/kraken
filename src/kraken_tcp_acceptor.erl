@@ -40,13 +40,13 @@ init(TcpServer, ListenSocket, Module) ->
                   exit(normal);
                 Other ->
                   error_logger:error_report(
-                      [{atom_to_list(Module) ++ ":handle_client_disconnect/3 failed", Other}]),
+                    [{atom_to_list(Module) ++ ":handle_client_disconnect/3 failed", Other}]),
                   exit(Other)
               end;
             Other ->
               error_logger:error_report([
                   {atom_to_list(Module) ++ ":init/0 failed",
-                  Other}]),
+                   Other}]),
               gen_tcp:close(Socket),
               exit({error, init_failed})
           end;
