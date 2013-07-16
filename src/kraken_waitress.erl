@@ -1,6 +1,6 @@
 %% @doc Generic queue
 
--module(kraken_queue).
+-module(kraken_waitress).
 
 -behavior(gen_server).
 

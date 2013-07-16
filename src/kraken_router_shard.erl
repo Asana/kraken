@@ -14,7 +14,7 @@
          code_change/3]).
 %% API
 -export([start_link/0, subscribe/3, unsubscribe/3, publish/4,
-         topics/2, topic_status/1, queue_pids/1]).
+         topics/2, topic_status/1, waitress_pids/1]).
 
 %%%-----------------------------------------------------------------
 %%% Definitions
@@ -37,15 +37,15 @@
 start_link() ->
   gen_server:start_link(?MODULE, [], []).
 
-%% @doc Subscribes QPid to a list of topics so that they will receive messages
+%% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
 %% Subscribers will not receive their own messages.
 %%
-%% @spec subscribe(RPid :: pid(), QPid :: pid(), Topics :: [string()]) -> ok
-subscribe(RPid, QPid, Topics) ->
-  gen_server:call(RPid, {subscribe, QPid, Topics}).
+%% @spec subscribe(RPid :: pid(), WPid :: pid(), Topics :: [string()]) -> ok
+subscribe(RPid, WPid, Topics) ->
+  gen_server:call(RPid, {subscribe, WPid, Topics}).
 
-%% @doc Unsubscribes QPid from a list of the topics they were previously
+%% @doc Unsubscribes WPid from a list of the topics they were previously
 %% subscribed to. If there is a topic in the list that the caller was not
 %% previously subscribed to it will be ignored.
 %%
@@ -56,30 +56,30 @@ subscribe(RPid, QPid, Topics) ->
 %% async we must still ensure that unsubscribes and subscribes from the same
 %% client happen in order!
 %%
-%% @spec unsubscribe(RPid :: pid(), QPid :: pid(), Topics :: [string()]) -> ok
-unsubscribe(RPid, QPid, Topics) ->
-  gen_server:call(RPid, {unsubscribe, QPid, Topics}).
+%% @spec unsubscribe(RPid :: pid(), WPid :: pid(), Topics :: [string()]) -> ok
+unsubscribe(RPid, WPid, Topics) ->
+  gen_server:call(RPid, {unsubscribe, WPid, Topics}).
 
 %% @doc Publishes a messages to all subscribers of Topics except the publisher
 %% themself. This is a asynchronous call because the publisher should not need
 %% to wait for it to complete before it can move on to other processing.
 %%
-%% @spec publish(RPid :: pid(), PublisherQPid :: pid(), Topics :: [string()], Message :: string()) -> ok
-publish(RPid, PublisherQPid, Topics, Message) ->
-  gen_server:cast(RPid, {publish, PublisherQPid, Topics, Message}),
+%% @spec publish(RPid :: pid(), PublisherWPid :: pid(), Topics :: [string()], Message :: string()) -> ok
+publish(RPid, PublisherWPid, Topics, Message) ->
+  gen_server:cast(RPid, {publish, PublisherWPid, Topics, Message}),
   ok.
 
-%% @doc Returns the list of queue pids.
+%% @doc Returns the list of waitress pids.
 %%
-%% @spec queue_pids(RPid :: pid()) -> [Pid :: pid()]
-queue_pids(RPid) ->
-  gen_server:call(RPid, queue_pids).
+%% @spec waitress_pids(RPid :: pid()) -> [Pid :: pid()]
+waitress_pids(RPid) ->
+  gen_server:call(RPid, waitress_pids).
 
-%% @doc Lists the topics that QPid is subscribed to.
+%% @doc Lists the topics that WPid is subscribed to.
 %%
-%% @spec topics(RPid :: pid(), QPid :: pid()) -> {ok, [Topics :: string()]}
-topics(RPid, QPid) ->
-  gen_server:call(RPid, {topics, QPid}).
+%% @spec topics(RPid :: pid(), WPid :: pid()) -> {ok, [Topics :: string()]}
+topics(RPid, WPid) ->
+  gen_server:call(RPid, {topics, WPid}).
 
 %% @doc Lists all topics, with the count of subscribers
 %%
@@ -98,32 +98,32 @@ init([]) ->
       topic_to_pids=
       ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag])}}.
 
-handle_call({subscribe, QPid, Topics}, _From,
+handle_call({subscribe, WPid, Topics}, _From,
             State=#state{pid_to_topics=PidToTopics,
                          topic_to_pids=TopicToPids}) ->
   lists:foreach(fun(Topic) ->
-        ets:insert(PidToTopics, {QPid, Topic}),
-        ets:insert(TopicToPids, {Topic, QPid})
+        ets:insert(PidToTopics, {WPid, Topic}),
+        ets:insert(TopicToPids, {Topic, WPid})
     end, Topics),
   {reply, ok, State};
 
-handle_call({unsubscribe, QPid, Topics}, _From,
+handle_call({unsubscribe, WPid, Topics}, _From,
             State=#state{pid_to_topics=PidToTopics,
                          topic_to_pids=TopicToPids}) ->
   lists:foreach(fun(Topic) ->
-        ets:delete_object(PidToTopics, {QPid, Topic}),
-        ets:delete_object(TopicToPids, {Topic, QPid})
+        ets:delete_object(PidToTopics, {WPid, Topic}),
+        ets:delete_object(TopicToPids, {Topic, WPid})
     end, Topics),
   {reply, ok, State};
 
-handle_call(queue_pids, _From, State=#state{pid_to_topics=PidToTopics}) ->
+handle_call(waitress_pids, _From, State=#state{pid_to_topics=PidToTopics}) ->
   {reply, ets_keys(PidToTopics), State};
 
-handle_call({topics, QPid}, _From, State=#state{pid_to_topics=PidToTopics}) ->
-  {reply, ets_lookup_list(PidToTopics, QPid), State};
+handle_call({topics, WPid}, _From, State=#state{pid_to_topics=PidToTopics}) ->
+  {reply, ets_lookup_list(PidToTopics, WPid), State};
 
 handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
-  TopicStatus = ets:foldl(fun({Topic, _QPid}, Acc) ->
+  TopicStatus = ets:foldl(fun({Topic, _WPid}, Acc) ->
           dict:update_counter(Topic, 1, Acc)
       end, dict:new(), TopicToPids),
   {reply, TopicStatus, State}.
@@ -133,7 +133,7 @@ handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
 %% approach is that it may be expensive to return large lists of subscribers
 %% to the caller so we leave all of the logic in the router for now. Routers are
 %% already sharded so this should leverage multiple cores regardless.
-handle_cast({publish, PublisherQPid, Topics, Message},
+handle_cast({publish, PublisherWPid, Topics, Message},
             State=#state{topic_to_pids=TopicToPids}) ->
   % Creates a list like [{Topic1, Pid1}, {Topic1, Pid2}, {Topic2, Pid1}].
   TopicPidPairs = lists:flatten(
@@ -145,23 +145,23 @@ handle_cast({publish, PublisherQPid, Topics, Message},
   % All of this work we do to ensure we only enqueue a single message per subscriber
   % may not be necessary, especially now that we shard the routers and
   % therefore cannot merge messages that happen to span shards. If we are going to
-  % do this at all, we probably should be doing it in the queues themselves so as
-  % not to block the routers and we should be doing it when the queues request the
+  % do this at all, we probably should be doing it in the waitresses themselves so as
+  % not to block the routers and we should be doing it when the waitresses request the
   % messages in a single batch across all publish ops. It's probably rare that a
-  % message is published to more than a handful of queues anyways.
+  % message is published to more than a handful of waitresses anyways.
 
   % Transforms to a dictionary like [{Pid1, [Topic1, Topic2]}, {Pid2, Topic1}].
-  PidToTopics = lists:foldl(fun({Topic, QPid}, Dict) ->
-          dict:append(QPid, Topic, Dict)
+  PidToTopics = lists:foldl(fun({Topic, WPid}, Dict) ->
+          dict:append(WPid, Topic, Dict)
       end, dict:new(), TopicPidPairs),
   % Sends the message to each pid, except for the one that is the same as the
   % publisher itself.
-  FanOutCount = lists:foldl(fun({QPid, PidTopics}, Acc) ->
-          case QPid of
-            PublisherQPid ->
+  FanOutCount = lists:foldl(fun({WPid, PidTopics}, Acc) ->
+          case WPid of
+            PublisherWPid ->
               Acc;
             _ ->
-              kraken_queue:enqueue_message(QPid, PidTopics, Message),
+              kraken_waitress:enqueue_message(WPid, PidTopics, Message),
               Acc + 1
           end
       end, 0, dict:to_list(PidToTopics)),
@@ -171,7 +171,7 @@ handle_cast({publish, PublisherQPid, Topics, Message},
         FanOutCount >= MinFanoutToWarn ->
           log4erl:warn(
             "Publish subscriber fanout of ~p, publisher ~p, topics ~p, message ~p",
-            [FanOutCount, PublisherQPid, Topics, Message]);
+            [FanOutCount, PublisherWPid, Topics, Message]);
         true -> ok
       end;
     undefined -> ok
@@ -179,19 +179,19 @@ handle_cast({publish, PublisherQPid, Topics, Message},
   {noreply, State};
 
 % Cast is ok for register because it's ok if we are not notified immediatly
-% when a QPid process dies.
-handle_cast({register, QPid}, State) ->
-  erlang:monitor(process, QPid),
+% when a WPid process dies.
+handle_cast({register, WPid}, State) ->
+  erlang:monitor(process, WPid),
   {noreply, State}.
 
 handle_info({'DOWN', _MonitorRef, process, DownPid, _Reason},
             State=#state{pid_to_topics=PidToTopics,
                          topic_to_pids=TopicToPids}) ->
-  % Remove the QPid from each of the Topic lists it was previouly in.
+  % Remove the WPid from each of the Topic lists it was previouly in.
   lists:foreach(fun({_Pid, Topic}) ->
         ets:delete_object(TopicToPids, {Topic, DownPid})
     end, ets:lookup(PidToTopics, DownPid)),
-  % Then remove the list of Topics for the QPid.
+  % Then remove the list of Topics for the WPid.
   ets:delete(PidToTopics, DownPid),
   {noreply, State};
 

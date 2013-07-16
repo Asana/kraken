@@ -20,8 +20,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 %% API
--export([start_link/2, start_queue_link/1, subscribe/2, unsubscribe/2, publish/3,
-         topics/1, topic_status/0, status/0, queue_pids/0]).
+-export([start_link/2, start_waitress_link/1, subscribe/2, unsubscribe/2, publish/3,
+         topics/1, topic_status/0, status/0, waitress_pids/0]).
 
 -compile(export_all).
 %%%-----------------------------------------------------------------
@@ -43,45 +43,45 @@
 start_link(Sup, NumRouters) ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [Sup, NumRouters], []).
 
-%% @doc Creates a new kraken_queue, links it to the calling process, and
+%% @doc Creates a new kraken_waitress, links it to the calling process, and
 %% registers it with the router so that the router will know when it exits
 %% and can clean up the appropriate routing information.
 %%
-%% @spec start_queue_link(Name) -> {ok, QPid :: pid()}
-start_queue_link(Name) ->
+%% @spec start_waitress_link(Name) -> {ok, WPid :: pid()}
+start_waitress_link(Name) ->
   % TODO: Consider using another supervisor to monitor these in addition to monitoring
   % them ourself to be more OTP compliant.
-  {ok, QPid} = kraken_queue:start_link(Name),
+  {ok, WPid} = kraken_waitress:start_link(Name),
   router_map(fun(Router) ->
-        gen_server:cast(Router, {register, QPid})
+        gen_server:cast(Router, {register, WPid})
     end),
-  {ok, QPid}.
+  {ok, WPid}.
 
-%% @doc registers QPid so the retroction has a place to start from.
+%% @doc registers WPid so the retroction has a place to start from.
 %% The serial_number from each Router Shard gets stored in the waitresses horizon
 %%
-%% @spec register(QPid :: pid(), Topics :: [string()]) -> ok
-register(QPid) ->
+%% @spec register(WPid :: pid(), Topics :: [string()]) -> ok
+register(WPid) ->
   %% router_topics_fold(fun(Router, RouterTopics, _Acc) ->
   %%   % TODO: Consider doing this and unregister in parallel to improve performance
-  %%   kraken_router_shard:register(Router, QPid, RouterTopics)
+  %%   kraken_router_shard:register(Router, WPid, RouterTopics)
   %% end, undefined, Topics),
   log4erl:debug("IN KRAKEN ROUTER REGISTER !!!!"),
   ok.
 
-%% @doc Subscribes QPid to a list of topics so that they will receive messages
+%% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
 %% Subscribers will not receive their own messages.
 %%
-%% @spec subscribe(QPid :: pid(), Topics :: [string()]) -> ok
-subscribe(QPid, Topics) ->
+%% @spec subscribe(WPid :: pid(), Topics :: [string()]) -> ok
+subscribe(WPid, Topics) ->
   router_topics_fold(fun(Router, RouterTopics, _Acc) ->
         % TODO: Consider doing this and unsubscribe in parallel to improve performance
-        kraken_router_shard:subscribe(Router, QPid, RouterTopics)
+        kraken_router_shard:subscribe(Router, WPid, RouterTopics)
     end, undefined, Topics),
   ok.
 
-%% @doc Unsubscribes QPid from a list of the topics they were previously
+%% @doc Unsubscribes WPid from a list of the topics they were previously
 %% subscribed to. If there is a topic in the list that the caller was not
 %% previously subscribed to it will be ignored.
 %%
@@ -92,10 +92,10 @@ subscribe(QPid, Topics) ->
 %% async we must still ensure that unsubscribes and subscribes from the same
 %% client happen in order!
 %%
-%% @spec unsubscribe(QPid :: pid(), Topics :: [string()]) -> ok
-unsubscribe(QPid, Topics) ->
+%% @spec unsubscribe(WPid :: pid(), Topics :: [string()]) -> ok
+unsubscribe(WPid, Topics) ->
   router_topics_fold(fun(Router, RouterTopics, _Acc) ->
-        kraken_router_shard:unsubscribe(Router, QPid, RouterTopics)
+        kraken_router_shard:unsubscribe(Router, WPid, RouterTopics)
     end, undefined, Topics),
   ok.
 
@@ -103,8 +103,8 @@ unsubscribe(QPid, Topics) ->
 %% themself. This is a asynchronous call because the publisher should not need
 %% to wait for it to complete before it can move on to other processing.
 %%
-%% @spec publish(PublisherQPid :: pid(), Topics :: [string()], Message :: string()) -> ok
-publish(PublisherQPid, Topics, Message) ->
+%% @spec publish(PublisherWPid :: pid(), Topics :: [string()], Message :: string()) -> ok
+publish(PublisherWPid, Topics, Message) ->
   case application:get_env(router_min_publish_to_topics_to_warn) of
     {ok, MinTopicsToWarn} ->
       TopicCount = length(Topics),
@@ -112,32 +112,32 @@ publish(PublisherQPid, Topics, Message) ->
         TopicCount >= MinTopicsToWarn ->
           log4erl:warn(
             "Publish topic fanout of ~p, publisher ~p, message ~p",
-            [TopicCount, PublisherQPid, Message]);
+            [TopicCount, PublisherWPid, Message]);
         true -> ok
       end;
     undefined -> ok
   end,
   router_topics_fold(fun(Router, RouterTopics, _Acc) ->
-        kraken_router_shard:publish(Router, PublisherQPid, RouterTopics, Message)
+        kraken_router_shard:publish(Router, PublisherWPid, RouterTopics, Message)
     end, undefined, Topics),
   ok.
 
-%% @doc Returns the list of queue pids.
+%% @doc Returns the list of waitress pids.
 %%
-%% @spec queue_pids() -> [Pid :: pid()]
-queue_pids() ->
+%% @spec waitress_pids() -> [Pid :: pid()]
+waitress_pids() ->
   State = state(),
-  % Any router should be able to return the complete list of QPids so we will just
+  % Any router should be able to return the complete list of WPids so we will just
   % return the first one.
   Router = array:get(0, State#state.routers),
-  kraken_router_shard:queue_pids(Router).
+  kraken_router_shard:waitress_pids(Router).
 
-%% @doc Lists the topics that QPid is subscribed to.
+%% @doc Lists the topics that WPid is subscribed to.
 %%
-%% @spec topics(QPid :: pid()) -> {ok, [Topics :: string()]}
-topics(QPid) ->
+%% @spec topics(WPid :: pid()) -> {ok, [Topics :: string()]}
+topics(WPid) ->
   router_aggregate(fun(Router) ->
-        kraken_router_shard:topics(Router, QPid)
+        kraken_router_shard:topics(Router, WPid)
     end).
 
 %% @doc Lists all topics, with the count of subscribers
@@ -150,25 +150,25 @@ topic_status() ->
           end, Dict, kraken_router_shard:topic_status(Router))
     end, dict:new()).
 
-%% @doc Prints the status of each queue currently referenced by the router.
+%% @doc Prints the status of each waitress currently referenced by the router.
 %%
 %% @spec status() -> ok
 status() ->
-  Qpids = queue_pids(),
-  QpidsLength = length(Qpids),
-  io:format("~s:~n~n", [kraken_util:pluralize("Queue", QpidsLength)]),
-  lists:foreach(fun(Qpid) ->
+  Wpids = waitress_pids(),
+  WpidsLength = length(Wpids),
+  io:format("~s:~n~n", [kraken_util:pluralize("Waitress", WpidsLength)]),
+  lists:foreach(fun(Wpid) ->
         try
-          {ok, Status} = kraken_queue:status(Qpid),
-          NTopics = length(topics(Qpid)),
-          io:format("Queue ~p, subscriptions: ~p, status: ~p~n", [
-              Qpid, NTopics, Status])
+          {ok, Status} = kraken_waitress:status(Wpid),
+          NTopics = length(topics(Wpid)),
+          io:format("Waitress ~p, subscriptions: ~p, status: ~p~n", [
+              Wpid, NTopics, Status])
         catch E:R ->
             % This is expected. We will octionally try to ask a process for its
             % status that has already exited.
             io:format("Error ~p ~p~n", [E, R])
         end
-    end, Qpids),
+    end, Wpids),
   ok.
 
 %%%-----------------------------------------------------------------
@@ -183,10 +183,10 @@ handle_call(state, _From, State) ->
   {reply, State, State}.
 
 % Cast is ok for register because it's ok if we are not notified immediatly
-% when a QPid process dies.
-handle_cast({register, QPid}, State=#state{routers=Routers}) ->
+% when a WPid process dies.
+handle_cast({register, WPid}, State=#state{routers=Routers}) ->
   array:map(fun(Router) ->
-        gen_server:cast(Router, {register, QPid})
+        gen_server:cast(Router, {register, WPid})
     end, Routers),
   {noreply, State}.
 
@@ -278,40 +278,40 @@ start_kraken_test() ->
   ok = kraken:start().
 
 subscribe_unsubscribe_topics_test() ->
-  {ok, QPid} = start_queue_link("Foo"),
-  ?assertMatch(ok, subscribe(QPid, ["topic1", "topic2"])),
-  ?assertMatch(["topic1", "topic2"], lists:sort(topics(QPid))),
-  ?assertMatch(ok, subscribe(QPid, ["topic3"])),
-  ?assertMatch(ok, subscribe(QPid, ["topic3"])),
-  ?assertMatch(["topic1", "topic2", "topic3"], lists:sort(topics(QPid))),
-  ?assertMatch(ok, unsubscribe(QPid, ["topic1", "topic3"])),
-  ?assertMatch(["topic2"], topics(QPid)).
+  {ok, WPid} = start_waitress_link("Foo"),
+  ?assertMatch(ok, subscribe(WPid, ["topic1", "topic2"])),
+  ?assertMatch(["topic1", "topic2"], lists:sort(topics(WPid))),
+  ?assertMatch(ok, subscribe(WPid, ["topic3"])),
+  ?assertMatch(ok, subscribe(WPid, ["topic3"])),
+  ?assertMatch(["topic1", "topic2", "topic3"], lists:sort(topics(WPid))),
+  ?assertMatch(ok, unsubscribe(WPid, ["topic1", "topic3"])),
+  ?assertMatch(["topic2"], topics(WPid)).
 
 publish_publish_test() ->
-  {ok, QPid} = start_queue_link("Foo"),
-  ?assertMatch(ok, subscribe(QPid, ["topic1", "topic2", "topic3"])),
+  {ok, WPid} = start_waitress_link("Foo"),
+  ?assertMatch(ok, subscribe(WPid, ["topic1", "topic2", "topic3"])),
   publish(self(), ["topic1", "topic3"], <<"m1">>),
   publish(self(), ["topic3"], <<"m2">>),
-  % "sleep" a tiny bit to allow the messages to propagate back to the queue.
+  % "sleep" a tiny bit to allow the messages to propagate back to the waitress.
   receive after 1 -> ok end,
   assert_received_messages(
-    kraken_queue:receive_messages(QPid),
+    kraken_waitress:receive_messages(WPid),
     [{"topic1", <<"m1">>},
      {"topic3", <<"m1">>},
      {"topic3", <<"m2">>}]),
-  % Ensure QPid does not receive its own messages
-  publish(QPid, ["topic2"], <<"m3">>),
+  % Ensure WPid does not receive its own messages
+  publish(WPid, ["topic2"], <<"m3">>),
   publish(self(), ["topic2"], <<"m4">>),
   receive after 1 -> ok end,
   assert_received_messages(
-    kraken_queue:receive_messages(QPid),
+    kraken_waitress:receive_messages(WPid),
     [{"topic2", <<"m4">>}]).
 
 topic_status_test() ->
-  {ok, QPid1} = start_queue_link("Foo"),
-  {ok, QPid2} = start_queue_link("Bar"),
-  ?assertMatch(ok, subscribe(QPid1, ["_topic1", "_topic2"])),
-  ?assertMatch(ok, subscribe(QPid2, ["_topic1"])),
+  {ok, WPid1} = start_waitress_link("Foo"),
+  {ok, WPid2} = start_waitress_link("Bar"),
+  ?assertMatch(ok, subscribe(WPid1, ["_topic1", "_topic2"])),
+  ?assertMatch(ok, subscribe(WPid2, ["_topic1"])),
   TopicStatus = topic_status(),
   ?assertMatch({ok, 2}, dict:find("_topic1", TopicStatus)),
   ?assertMatch({ok, 1}, dict:find("_topic2", TopicStatus)),
@@ -320,7 +320,7 @@ topic_status_test() ->
 stop_kraken_test() ->
   ok = kraken:stop().
 
-% TODO: Write tests that ensure routing information is cleaned up when queue
+% TODO: Write tests that ensure routing information is cleaned up when waitress
 % processes exit.
 
 -endif.
