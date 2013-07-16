@@ -4,7 +4,7 @@
    {modules, [
      kraken,
      kraken_app,
-     kraken_queue,
+     kraken_waitress,
      kraken_router,
      kraken_router_shard,
      kraken_sup,
