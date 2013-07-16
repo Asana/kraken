@@ -17,9 +17,9 @@
 
 connect(Host, Port) ->
   gen_tcp:connect(Host, Port, [binary,
-      {packet, line},
-      {active, false},
-      {reuseaddr, true}]).
+                               {packet, line},
+                               {active, false},
+                               {reuseaddr, true}]).
 
 disconnect(Socket) ->
   gen_tcp:close(Socket).
@@ -32,7 +32,7 @@ unsubscribe(Socket, Topics) ->
 
 publish(Socket, MessageEntries) ->
   {DataBytes, DataBlock} =
-      kraken_memcached:serialize_message_entries(MessageEntries),
+                           kraken_memcached:serialize_message_entries(MessageEntries),
   set_command(Socket, <<"publish">>, DataBytes, DataBlock).
 
 receive_messages(Socket) ->
@@ -54,9 +54,9 @@ set_command(Socket, Command, Data) ->
 
 set_command(Socket, Command, Bytes, Data) ->
   gen_tcp:send(Socket,
-      [<<"set ">>, Command, <<" 0 0 ">>,
-       list_to_binary(integer_to_list(Bytes)),
-       <<"\r\n">>, Data, <<"\r\n">>]),
+               [<<"set ">>, Command, <<" 0 0 ">>,
+                list_to_binary(integer_to_list(Bytes)),
+                <<"\r\n">>, Data, <<"\r\n">>]),
   case gen_tcp:recv(Socket, 0) of
     {ok, <<"STORED\r\n">>} ->
       ok;
@@ -66,7 +66,7 @@ set_command(Socket, Command, Bytes, Data) ->
 
 get_command(Socket, Command) ->
   gen_tcp:send(Socket,
-      [<<"get ">>, Command, <<"\r\n">>]),
+               [<<"get ">>, Command, <<"\r\n">>]),
   {ok, Data} = receive_value(Socket, Command),
   Data.
 
@@ -130,10 +130,10 @@ assert_receive(Results, ExpectedResults, Socket, MaxTimeMillis) ->
     length(NewResults) < length(ExpectedResults) ->
       timer:sleep(?SLEEP_TIME),
       assert_receive(
-          NewResults,
-          ExpectedResults,
-          Socket,
-          erlang:max(MaxTimeMillis - ?SLEEP_TIME, 0));
+        NewResults,
+        ExpectedResults,
+        Socket,
+        erlang:max(MaxTimeMillis - ?SLEEP_TIME, 0));
     true ->
       assert_receive(NewResults, ExpectedResults, Socket, 0)
   end.
@@ -150,8 +150,8 @@ wait_for_processes_to_exit(Processes, 0) ->
   if
     CurrentProcessCount > TargetProcessCount ->
       lists:foreach(fun(Pid) ->
-        ?debugFmt("Leaked process ~n~p~n", [erlang:process_info(Pid)])
-      end, lists:subtract(processes(), Processes)),
+            ?debugFmt("Leaked process ~n~p~n", [erlang:process_info(Pid)])
+        end, lists:subtract(processes(), Processes)),
       ?assertEqual(TargetProcessCount, CurrentProcessCount);
     true ->
       ok
@@ -163,8 +163,8 @@ wait_for_processes_to_exit(Processes, MaxTimeMillis) ->
     CurrentProcessCount > TargetProcessCount ->
       timer:sleep(?SLEEP_TIME),
       wait_for_processes_to_exit(
-          TargetProcessCount,
-          erlang:max(MaxTimeMillis - ?SLEEP_TIME, 0));
+        TargetProcessCount,
+        erlang:max(MaxTimeMillis - ?SLEEP_TIME, 0));
     true ->
       ok
   end.
@@ -177,17 +177,17 @@ new_client() ->
 kraken_client_test_() ->
   {setup,
    fun() ->
-     ok = kraken:start(),
-     % We make the following call to ensure the erlang inet processes are
-     % already started so that we do not consider them in our process leak
-     % checks later. This call will fail but we can ignore the error.
-     _ = inet_res:gethostbyname("localhost"),
-     processes()
-   end,
+        ok = kraken:start(),
+        % We make the following call to ensure the erlang inet processes are
+        % already started so that we do not consider them in our process leak
+        % checks later. This call will fail but we can ignore the error.
+        _ = inet_res:gethostbyname("localhost"),
+        processes()
+    end,
    fun(Processes) ->
-     ok = kraken:stop(),
-     assert_no_leaked_processes(Processes)
-   end,
+        ok = kraken:stop(),
+        assert_no_leaked_processes(Processes)
+    end,
    [{foreach,
      fun new_client/0,
      [{with, [fun test_disconnect/1]},
@@ -210,9 +210,8 @@ test_publish_receive_commands(Socket1) ->
   ?assertMatch([], kraken_client:receive_messages(Socket2)),
   ok = kraken_client:subscribe(Socket2, [<<"topic1">>, <<"topic2">>]),
   ok = kraken_client:publish(Socket1,
-      [{[<<"topic1">>, <<"topic2">>], <<"m1">>},
-       {[<<"topic3">>], <<"m2">>}]),
+                             [{[<<"topic1">>, <<"topic2">>], <<"m1">>},
+                              {[<<"topic3">>], <<"m2">>}]),
   assert_receive([{<<"topic1">>,<<"m1">>}, {<<"topic2">>,<<"m1">>}], Socket2).
 
 -endif.
-

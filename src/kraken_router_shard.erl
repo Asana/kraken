@@ -94,26 +94,26 @@ topic_status(RPid) ->
 init([]) ->
   {ok, #state{
       pid_to_topics=
-          ets:new(list_to_atom(?TABLE_PREFIX ++ "pid_to_topics"), [bag]),
+      ets:new(list_to_atom(?TABLE_PREFIX ++ "pid_to_topics"), [bag]),
       topic_to_pids=
-          ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag])}}.
+      ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag])}}.
 
 handle_call({subscribe, QPid, Topics}, _From,
-    State=#state{pid_to_topics=PidToTopics,
-                 topic_to_pids=TopicToPids}) ->
+            State=#state{pid_to_topics=PidToTopics,
+                         topic_to_pids=TopicToPids}) ->
   lists:foreach(fun(Topic) ->
-    ets:insert(PidToTopics, {QPid, Topic}),
-    ets:insert(TopicToPids, {Topic, QPid})
-  end, Topics),
+        ets:insert(PidToTopics, {QPid, Topic}),
+        ets:insert(TopicToPids, {Topic, QPid})
+    end, Topics),
   {reply, ok, State};
 
 handle_call({unsubscribe, QPid, Topics}, _From,
-    State=#state{pid_to_topics=PidToTopics,
-                 topic_to_pids=TopicToPids}) ->
+            State=#state{pid_to_topics=PidToTopics,
+                         topic_to_pids=TopicToPids}) ->
   lists:foreach(fun(Topic) ->
-    ets:delete_object(PidToTopics, {QPid, Topic}),
-    ets:delete_object(TopicToPids, {Topic, QPid})
-  end, Topics),
+        ets:delete_object(PidToTopics, {QPid, Topic}),
+        ets:delete_object(TopicToPids, {Topic, QPid})
+    end, Topics),
   {reply, ok, State};
 
 handle_call(queue_pids, _From, State=#state{pid_to_topics=PidToTopics}) ->
@@ -124,8 +124,8 @@ handle_call({topics, QPid}, _From, State=#state{pid_to_topics=PidToTopics}) ->
 
 handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
   TopicStatus = ets:foldl(fun({Topic, _QPid}, Acc) ->
-    dict:update_counter(Topic, 1, Acc)
-  end, dict:new(), TopicToPids),
+          dict:update_counter(Topic, 1, Acc)
+      end, dict:new(), TopicToPids),
   {reply, TopicStatus, State}.
 
 %% PERF NOTE: We could consider moving most of the publish logic into the caller so
@@ -134,12 +134,12 @@ handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
 %% to the caller so we leave all of the logic in the router for now. Routers are
 %% already sharded so this should leverage multiple cores regardless.
 handle_cast({publish, PublisherQPid, Topics, Message},
-    State=#state{topic_to_pids=TopicToPids}) ->
+            State=#state{topic_to_pids=TopicToPids}) ->
   % Creates a list like [{Topic1, Pid1}, {Topic1, Pid2}, {Topic2, Pid1}].
   TopicPidPairs = lists:flatten(
       lists:map(fun(Topic) ->
-        ets:lookup(TopicToPids, Topic)
-      end, Topics)),
+            ets:lookup(TopicToPids, Topic)
+        end, Topics)),
 
   % TODO:
   % All of this work we do to ensure we only enqueue a single message per subscriber
@@ -152,26 +152,26 @@ handle_cast({publish, PublisherQPid, Topics, Message},
 
   % Transforms to a dictionary like [{Pid1, [Topic1, Topic2]}, {Pid2, Topic1}].
   PidToTopics = lists:foldl(fun({Topic, QPid}, Dict) ->
-    dict:append(QPid, Topic, Dict)
-  end, dict:new(), TopicPidPairs),
+          dict:append(QPid, Topic, Dict)
+      end, dict:new(), TopicPidPairs),
   % Sends the message to each pid, except for the one that is the same as the
   % publisher itself.
   FanOutCount = lists:foldl(fun({QPid, PidTopics}, Acc) ->
-    case QPid of
-      PublisherQPid ->
-        Acc;
-      _ ->
-        kraken_queue:enqueue_message(QPid, PidTopics, Message),
-        Acc + 1
-    end
-  end, 0, dict:to_list(PidToTopics)),
+          case QPid of
+            PublisherQPid ->
+              Acc;
+            _ ->
+              kraken_queue:enqueue_message(QPid, PidTopics, Message),
+              Acc + 1
+          end
+      end, 0, dict:to_list(PidToTopics)),
   case application:get_env(router_min_fanout_to_warn) of
     {ok, MinFanoutToWarn} ->
       if
         FanOutCount >= MinFanoutToWarn ->
           log4erl:warn(
-              "Publish subscriber fanout of ~p, publisher ~p, topics ~p, message ~p",
-              [FanOutCount, PublisherQPid, Topics, Message]);
+            "Publish subscriber fanout of ~p, publisher ~p, topics ~p, message ~p",
+            [FanOutCount, PublisherQPid, Topics, Message]);
         true -> ok
       end;
     undefined -> ok
@@ -185,12 +185,12 @@ handle_cast({register, QPid}, State) ->
   {noreply, State}.
 
 handle_info({'DOWN', _MonitorRef, process, DownPid, _Reason},
-    State=#state{pid_to_topics=PidToTopics,
-                 topic_to_pids=TopicToPids}) ->
+            State=#state{pid_to_topics=PidToTopics,
+                         topic_to_pids=TopicToPids}) ->
   % Remove the QPid from each of the Topic lists it was previouly in.
   lists:foreach(fun({_Pid, Topic}) ->
-    ets:delete_object(TopicToPids, {Topic, DownPid})
-  end, ets:lookup(PidToTopics, DownPid)),
+        ets:delete_object(TopicToPids, {Topic, DownPid})
+    end, ets:lookup(PidToTopics, DownPid)),
   % Then remove the list of Topics for the QPid.
   ets:delete(PidToTopics, DownPid),
   {noreply, State};
@@ -213,8 +213,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% them all as Key Value pairs.
 ets_lookup_list(Table, Key) ->
   lists:map(fun({_Key, Value}) ->
-    Value
-  end, ets:lookup(Table, Key)).
+        Value
+    end, ets:lookup(Table, Key)).
 
 ets_keys(Tab) ->
   First = ets:first(Tab),
@@ -225,5 +225,3 @@ ets_keys(_Tab, '$end_of_table', Acc) ->
 ets_keys(Tab, Key, Acc) ->
   Next = ets:next(Tab, Key),
   ets_keys(Tab, Next, [Key|Acc]).
-
-

@@ -48,7 +48,7 @@
 
 start_link(Module, Ip, Port, MaxClients) ->
   gen_server:start_link(
-      {local, ?SERVER}, ?MODULE, [Module, Ip, Port, MaxClients], []).
+    {local, ?SERVER}, ?MODULE, [Module, Ip, Port, MaxClients], []).
 
 %%%-----------------------------------------------------------------
 %%% Callbacks
@@ -84,9 +84,9 @@ init([Module, Ip, Port, MaxClients]) ->
 
 handle_call({accepted, AcceptorPid}, _From,
             State=#state{
-              clients=Clients,
-              client_count=ClientCount,
-              max_clients=MaxClients}) ->
+        clients=Clients,
+        client_count=ClientCount,
+        max_clients=MaxClients}) ->
   % Regardless of wether or not we have too many connections we still need
   % to create a new acceptor.
   NewState = recycle_acceptor(AcceptorPid, State),
@@ -116,8 +116,8 @@ handle_info({'EXIT', AcceptorPid, Reason},
 
 handle_info({'EXIT', Pid, Reason},
             State=#state{
-              clients=Clients,
-              client_count=ClientCount}) ->
+        clients=Clients,
+        client_count=ClientCount}) ->
   case ets:member(Clients, Pid) of
     true ->
       ets:delete(Clients, Pid),
@@ -145,8 +145,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 recycle_acceptor(_AcceptorPid,
                  State=#state{
-                   module=Module,
-                   listen_socket=ListenSocket}) ->
+        module=Module,
+        listen_socket=ListenSocket}) ->
   State#state{
     acceptor_pid=kraken_tcp_acceptor:start_link(self(), ListenSocket, Module)}.
 
@@ -158,4 +158,3 @@ recycle_acceptor(_AcceptorPid,
 -ifdef(TEST).
 
 -endif.
-

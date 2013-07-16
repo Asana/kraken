@@ -40,8 +40,8 @@ run(NumClients, N, NumBaseTopics, NumTopics, NumMessages) ->
       CollectorPid, [], NumClients, BaseTopics, DeltaTopics, Messages),
   io:format("Running general benchmark...~n"),
   Time = benchmark(fun() ->
-    pmap(ClientFuns)
-  end, N),
+          pmap(ClientFuns)
+      end, N),
   log_section("General results"),
   log_metric("Milliseconds", Time),
   log_metric("Messages/Sec", (NumMessages * NumClients * N * ?TIMES_PER_CONNECTION) / Time * 1000),
@@ -60,21 +60,21 @@ prepare_client(CollectorPid, BaseTopics, DeltaTopics, Messages) ->
   {ok, Socket} = kraken_client:connect(Host, Port),
   kraken_client:subscribe(Socket, BaseTopics),
   fun() ->
-    test_server:do_times(?TIMES_PER_CONNECTION, fun() ->
-      SubscribeTime = benchmark(fun() ->
-        kraken_client:subscribe(Socket, DeltaTopics)
-      end, 1),
-      UnsubscribeTime = benchmark(fun() ->
-        kraken_client:unsubscribe(Socket, DeltaTopics)
-      end, 1),
-      PublishTime = benchmark(fun() ->
-        kraken_client:publish(Socket, Messages)
-      end, 1),
-      ReceiveTime = benchmark(fun() ->
-        kraken_client:receive_messages(Socket)
-      end, 1),
-      CollectorPid ! {metrics, SubscribeTime, UnsubscribeTime, PublishTime, ReceiveTime}
-    end)
+      test_server:do_times(?TIMES_PER_CONNECTION, fun() ->
+            SubscribeTime = benchmark(fun() ->
+                    kraken_client:subscribe(Socket, DeltaTopics)
+                end, 1),
+            UnsubscribeTime = benchmark(fun() ->
+                    kraken_client:unsubscribe(Socket, DeltaTopics)
+                end, 1),
+            PublishTime = benchmark(fun() ->
+                    kraken_client:publish(Socket, Messages)
+                end, 1),
+            ReceiveTime = benchmark(fun() ->
+                    kraken_client:receive_messages(Socket)
+                end, 1),
+            CollectorPid ! {metrics, SubscribeTime, UnsubscribeTime, PublishTime, ReceiveTime}
+        end)
   end.
 
 collect_metrics() -> collect_metrics(0, 0, 0, 0, 0).
@@ -82,11 +82,11 @@ collect_metrics(N, SubscribeTime, UnsubscribeTime, PublishTime, ReceiveTime) ->
   receive
     {metrics, Subscribe, Unsubscribe, Publish, Receive} ->
       collect_metrics(
-          N+1,
-          SubscribeTime + Subscribe,
-          UnsubscribeTime + Unsubscribe,
-          PublishTime + Publish,
-          ReceiveTime + Receive);
+        N+1,
+        SubscribeTime + Subscribe,
+        UnsubscribeTime + Unsubscribe,
+        PublishTime + Publish,
+        ReceiveTime + Receive);
     stop ->
       log_section("Operation times (ms)"),
       log_metric("Average Subscribe Time", SubscribeTime / N),
@@ -143,5 +143,3 @@ pmap(Funs) ->
 
 log_section(Msg) -> io:format("~n~p~n=======~n", [Msg]).
 log_metric(Name, Value) -> io:format("~p: ~p~n", [Name, Value]).
-
-

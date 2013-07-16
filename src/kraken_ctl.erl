@@ -58,8 +58,8 @@ dump_queue_topics([Node, QpidAtom]) ->
   QpidString = atom_to_list(QpidAtom),
   Qpids = rpc:call(Node, kraken_router, queue_pids, []),
   [Qpid] = lists:filter(fun(X) ->
-    string:equal(pid_to_list(X), QpidString)
-  end, Qpids),
+          string:equal(pid_to_list(X), QpidString)
+      end, Qpids),
   Topics = rpc:call(Node, kraken_router, topics, [Qpid]),
   io:format("Queue ~p, topics: ~n", [Qpid]),
   lists:foreach(fun(X) -> io:format("~s~n", [X]) end, Topics),
@@ -69,11 +69,11 @@ dump_queue_topics([Node, QpidAtom]) ->
 dump_topics([Node]) ->
   TopicStatus = rpc:call(Node, kraken_router, topic_status, []),
   SortedTopicStatus = lists:sort(fun({_TopicA, CountA}, {_TopicB, CountB}) ->
-    CountA >= CountB
-  end, dict:to_list(TopicStatus)),
+          CountA >= CountB
+      end, dict:to_list(TopicStatus)),
   lists:foreach(fun({Topic, Count}) ->
-    io:format("~s\t~p~n", [Topic, Count])
-  end, SortedTopicStatus),
+        io:format("~s\t~p~n", [Topic, Count])
+    end, SortedTopicStatus),
   init:stop(0).
 
 application_is_running(Node, Name) ->
@@ -89,4 +89,3 @@ application_in_list([AppData|Rest], Name) ->
     Name -> true;
     _Other -> application_in_list(Rest, Name)
   end.
-

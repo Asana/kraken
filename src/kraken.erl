@@ -21,4 +21,3 @@ stop() ->
   Res = application:stop(kraken),
   application:stop(log4erl),
   Res.
-
