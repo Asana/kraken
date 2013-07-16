@@ -86,7 +86,7 @@ relay(Module, Socket, State) ->
         Other ->
           gen_tcp:close(Socket),
           error_logger:error_report(
-              [{atom_to_list(Module) ++ ":handle_data/3 failed", Other}])
+            [{atom_to_list(Module) ++ ":handle_data/3 failed", Other}])
       end;
     {error, closed} ->
       log4erl:warn("Connection closed while receiving data in tcp acceptor"),
@@ -107,4 +107,3 @@ relay(Module, Socket, State) ->
 -include_lib("eunit/include/eunit.hrl").
 -ifdef(TEST).
 -endif.
-

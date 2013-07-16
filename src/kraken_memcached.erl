@@ -166,21 +166,21 @@ handle_data(<<"get messages \r\n">>, Socket, State=#state{bytes_remaining=0}) ->
 
 handle_data(<<"set ", Rest/binary>>, _Socket,
             State=#state{
-              bytes_remaining=0,
-              request_count=RequestCount}) ->
+        bytes_remaining=0,
+        request_count=RequestCount}) ->
   {Command, BytesRemaining} = parse_command(Rest),
   {ok, State#state{
-         bytes_remaining=BytesRemaining+2,
-         command=Command,
-         request_count=RequestCount+1}};
+      bytes_remaining=BytesRemaining+2,
+      command=Command,
+      request_count=RequestCount+1}};
 
 handle_data(Other, Socket, State=#state{bytes_remaining=0}) ->
   log_command(Other, bad_command),
   Start = erlang:now(),
   TimeMs = timer:now_diff(erlang:now(), Start) / 1000,
   log4erl:warn(
-      "(~p) [~p ms] Got bad response with no bytes remaining in Command ~s",
-      [self(), TimeMs, bad_command]),
+    "(~p) [~p ms] Got bad response with no bytes remaining in Command ~s",
+    [self(), TimeMs, bad_command]),
   gen_tcp:send(Socket, ?BAD_COMMAND_RESP),
   {stop, State};
 
@@ -188,9 +188,9 @@ handle_data(Other, Socket, State=#state{bytes_remaining=0}) ->
 % segment of the request.
 handle_data(Data, Socket,
             State=#state{
-              command=Command,
-              bytes_remaining=BytesRemaining,
-              buffer=Buffer}) ->
+        command=Command,
+        bytes_remaining=BytesRemaining,
+        buffer=Buffer}) ->
   Bytes = size(Data),
   if
     Bytes =:= BytesRemaining ->
@@ -203,14 +203,14 @@ handle_data(Data, Socket,
       handle_and_log_command(Command, BinDataWithoutEndl, Socket, NewState);
     Bytes > BytesRemaining ->
       log4erl:warn(
-          "Memcached server received too many bytes from client ~p > ~p",
-          [Bytes, BytesRemaining]),
+        "Memcached server received too many bytes from client ~p > ~p",
+        [Bytes, BytesRemaining]),
       gen_tcp:send(Socket, ?BAD_COMMAND_RESP),
       {stop, State};
     true ->
       {ok, State#state{
-            buffer=[Data|Buffer],
-            bytes_remaining=BytesRemaining-Bytes}}
+          buffer=[Data|Buffer],
+          bytes_remaining=BytesRemaining-Bytes}}
   end.
 
 handle_client_disconnect(_Socket, State=#state{qpid=QPid}) ->
@@ -226,7 +226,7 @@ handle_client_timeout(Socket, State=#state{qpid=Qpid}) ->
 handle_server_busy(Socket) ->
   log4erl:info("Server reached max clients. Rejecting connection."),
   gen_tcp:send(Socket,
-      [?SERVER_ERROR_RESP_PREFIX, <<"Too many clients\r\n">>]),
+               [?SERVER_ERROR_RESP_PREFIX, <<"Too many clients\r\n">>]),
   ok.
 
 handle_and_log_command(Command, Data, Socket, State) ->
@@ -267,8 +267,8 @@ handle_command(?UNSUBSCRIBE_COMMAND, Data, Socket, State=#state{qpid=QPid}) ->
 handle_command(?PUBLISH_COMMAND, Data, Socket, State=#state{qpid=QPid}) ->
   Entries = parse_publish_entries(Data),
   lists:foreach(fun({Topics, Message}) ->
-    kraken_router:publish(QPid, Topics, Message)
-  end, Entries),
+        kraken_router:publish(QPid, Topics, Message)
+    end, Entries),
   gen_tcp:send(Socket, ?STORED_RESP),
   {ok, State, Entries};
 
@@ -299,21 +299,21 @@ handle_command(Command, _Data, Socket, State) ->
 
 serialize_topics(Topics) ->
   list_to_binary(lists:flatten(lists:map(fun(Topic) ->
-    [Topic, <<" ">>]
-  end, Topics))).
+            [Topic, <<" ">>]
+        end, Topics))).
 
 serialize_message_entries(MessageEntries) ->
   DataBlock = lists:flatten(lists:map(fun({Topics, Message}) ->
-    [<<"MESSAGE ">>,
-     serialize_topics(Topics),
-     list_to_binary(integer_to_list(size(Message))),
-     <<"\r\n">>,
-     Message,
-     <<"\r\n">>]
-  end, MessageEntries)),
+            [<<"MESSAGE ">>,
+             serialize_topics(Topics),
+             list_to_binary(integer_to_list(size(Message))),
+             <<"\r\n">>,
+             Message,
+             <<"\r\n">>]
+        end, MessageEntries)),
   DataBytes = lists:foldl(fun(Part, Sum) ->
-    size(Part) + Sum
-  end, 0, DataBlock),
+          size(Part) + Sum
+      end, 0, DataBlock),
   {DataBytes, DataBlock}.
 
 log_command(Start, Command) ->
@@ -322,11 +322,11 @@ log_command(Start, Command) ->
 log_command(Start, Command, Details) ->
   TimeMs = timer:now_diff(erlang:now(), Start) / 1000,
   log4erl:debug(
-      "(~p) [~p ms] Command ~s ~p", [self(), TimeMs, Command, Details]).
+    "(~p) [~p ms] Command ~s ~p", [self(), TimeMs, Command, Details]).
 
 parse_command(Bin) ->
   [Command, _, _, SBytesRemaining] =
-      binary:split(Bin, [<<" ">>, <<"\r\n">>], [global, trim]),
+                                     binary:split(Bin, [<<" ">>, <<"\r\n">>], [global, trim]),
   {Command, list_to_integer(binary_to_list(SBytesRemaining))}.
 
 parse_publish_entries(<<>>) ->
@@ -368,12 +368,11 @@ parse_command_test() ->
 
 parse_publish_entries_test() ->
   ?assertMatch(
-      [{[<<"a">>], <<"m1">>}],
-      parse_publish_entries(<<"MESSAGE a 2\r\nm1\r\n">>)),
+    [{[<<"a">>], <<"m1">>}],
+    parse_publish_entries(<<"MESSAGE a 2\r\nm1\r\n">>)),
   ?assertMatch(
-      [{[<<"a">>, <<"b">>], <<"m1">>},
-       {[<<"c">>], <<"a\r\nb\nc">>}],
-      parse_publish_entries(<<"MESSAGE a b 2\r\nm1\r\nMESSAGE c 6\r\na\r\nb\nc\r\n">>)).
+    [{[<<"a">>, <<"b">>], <<"m1">>},
+     {[<<"c">>], <<"a\r\nb\nc">>}],
+    parse_publish_entries(<<"MESSAGE a b 2\r\nm1\r\nMESSAGE c 6\r\na\r\nb\nc\r\n">>)).
 
 -endif.
-

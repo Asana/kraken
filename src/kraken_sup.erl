@@ -17,7 +17,7 @@
 %% @spec start_link() -> ServerRet
 %% @doc API for starting the supervisor.
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+  supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% ===================================================================
 %% Supervisor callbacks
@@ -32,15 +32,15 @@ init([]) ->
   {ok, NumRouterShards} = application:get_env(num_router_shards),
 
   PubsubRouter = {
-    kraken_router,
-    {kraken_router, start_link, [self(), NumRouterShards]},
-    permanent, 5000, worker, [kraken_router]},
+      kraken_router,
+      {kraken_router, start_link, [self(), NumRouterShards]},
+      permanent, 5000, worker, [kraken_router]},
 
   PubsubTcpServer = {
-    kraken_tcp_server,
-    {kraken_tcp_server, start_link,
-     [kraken_memcached, ListenIp, TcpServerPort, MaxTcpClients]},
-    permanent, 5000, worker, dynamic},
+      kraken_tcp_server,
+      {kraken_tcp_server, start_link,
+       [kraken_memcached, ListenIp, TcpServerPort, MaxTcpClients]},
+      permanent, 5000, worker, dynamic},
 
   {ok, {{one_for_all, 10, 10}, [PubsubRouter, PubsubTcpServer]}}.
 
@@ -50,4 +50,3 @@ init([]) ->
 -include_lib("eunit/include/eunit.hrl").
 -ifdef(TEST).
 -endif.
-

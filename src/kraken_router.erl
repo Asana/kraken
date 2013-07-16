@@ -53,8 +53,8 @@ start_queue_link(Name) ->
   % them ourself to be more OTP compliant.
   {ok, QPid} = kraken_queue:start_link(Name),
   router_map(fun(Router) ->
-    gen_server:cast(Router, {register, QPid})
-  end),
+        gen_server:cast(Router, {register, QPid})
+    end),
   {ok, QPid}.
 
 %% @doc registers QPid so the retroction has a place to start from.
@@ -76,9 +76,9 @@ register(QPid) ->
 %% @spec subscribe(QPid :: pid(), Topics :: [string()]) -> ok
 subscribe(QPid, Topics) ->
   router_topics_fold(fun(Router, RouterTopics, _Acc) ->
-    % TODO: Consider doing this and unsubscribe in parallel to improve performance
-    kraken_router_shard:subscribe(Router, QPid, RouterTopics)
-  end, undefined, Topics),
+        % TODO: Consider doing this and unsubscribe in parallel to improve performance
+        kraken_router_shard:subscribe(Router, QPid, RouterTopics)
+    end, undefined, Topics),
   ok.
 
 %% @doc Unsubscribes QPid from a list of the topics they were previously
@@ -95,8 +95,8 @@ subscribe(QPid, Topics) ->
 %% @spec unsubscribe(QPid :: pid(), Topics :: [string()]) -> ok
 unsubscribe(QPid, Topics) ->
   router_topics_fold(fun(Router, RouterTopics, _Acc) ->
-    kraken_router_shard:unsubscribe(Router, QPid, RouterTopics)
-  end, undefined, Topics),
+        kraken_router_shard:unsubscribe(Router, QPid, RouterTopics)
+    end, undefined, Topics),
   ok.
 
 %% @doc Publishes a messages to all subscribers of Topics except the publisher
@@ -111,15 +111,15 @@ publish(PublisherQPid, Topics, Message) ->
       if
         TopicCount >= MinTopicsToWarn ->
           log4erl:warn(
-              "Publish topic fanout of ~p, publisher ~p, message ~p",
-              [TopicCount, PublisherQPid, Message]);
+            "Publish topic fanout of ~p, publisher ~p, message ~p",
+            [TopicCount, PublisherQPid, Message]);
         true -> ok
       end;
     undefined -> ok
   end,
   router_topics_fold(fun(Router, RouterTopics, _Acc) ->
-    kraken_router_shard:publish(Router, PublisherQPid, RouterTopics, Message)
-  end, undefined, Topics),
+        kraken_router_shard:publish(Router, PublisherQPid, RouterTopics, Message)
+    end, undefined, Topics),
   ok.
 
 %% @doc Returns the list of queue pids.
@@ -137,18 +137,18 @@ queue_pids() ->
 %% @spec topics(QPid :: pid()) -> {ok, [Topics :: string()]}
 topics(QPid) ->
   router_aggregate(fun(Router) ->
-    kraken_router_shard:topics(Router, QPid)
-  end).
+        kraken_router_shard:topics(Router, QPid)
+    end).
 
 %% @doc Lists all topics, with the count of subscribers
 %%
 %% @spec topic_status() -> [Topics:: {string(), integer()}]
 topic_status() ->
   router_fold(fun(Router, Dict) ->
-    dict:merge(fun (K, V1, V2) ->
-      erlang:error({topic_in_two_routers, K, V1, V2})
-    end, Dict, kraken_router_shard:topic_status(Router))
-  end, dict:new()).
+        dict:merge(fun (K, V1, V2) ->
+              erlang:error({topic_in_two_routers, K, V1, V2})
+          end, Dict, kraken_router_shard:topic_status(Router))
+    end, dict:new()).
 
 %% @doc Prints the status of each queue currently referenced by the router.
 %%
@@ -158,17 +158,17 @@ status() ->
   QpidsLength = length(Qpids),
   io:format("~s:~n~n", [kraken_util:pluralize("Queue", QpidsLength)]),
   lists:foreach(fun(Qpid) ->
-    try
-      {ok, Status} = kraken_queue:status(Qpid),
-      NTopics = length(topics(Qpid)),
-      io:format("Queue ~p, subscriptions: ~p, status: ~p~n", [
-          Qpid, NTopics, Status])
-    catch E:R ->
-      % This is expected. We will octionally try to ask a process for its
-      % status that has already exited.
-      io:format("Error ~p ~p~n", [E, R])
-    end
-  end, Qpids),
+        try
+          {ok, Status} = kraken_queue:status(Qpid),
+          NTopics = length(topics(Qpid)),
+          io:format("Queue ~p, subscriptions: ~p, status: ~p~n", [
+              Qpid, NTopics, Status])
+        catch E:R ->
+            % This is expected. We will octionally try to ask a process for its
+            % status that has already exited.
+            io:format("Error ~p ~p~n", [E, R])
+        end
+    end, Qpids),
   ok.
 
 %%%-----------------------------------------------------------------
@@ -186,8 +186,8 @@ handle_call(state, _From, State) ->
 % when a QPid process dies.
 handle_cast({register, QPid}, State=#state{routers=Routers}) ->
   array:map(fun(Router) ->
-    gen_server:cast(Router, {register, QPid})
-  end, Routers),
+        gen_server:cast(Router, {register, QPid})
+    end, Routers),
   {noreply, State}.
 
 handle_info({start_routers, Sup, NumRouters}, State) ->
@@ -215,24 +215,24 @@ start_routers(_Sup, 0, State) ->
   State;
 start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers}) ->
   {ok, NewRouter} = supervisor:start_child(Sup, {
-    {kraken_router_shard, self(), Count},
-    {kraken_router_shard, start_link, []},
-    % Temporary because we DO not want the supervisor to restart them. The router
-    % will spawn new router shards whenever it restarts.
-    temporary,
-    brutal_kill,
-    worker,
-    [kraken_router_shard]
-  }),
+        {kraken_router_shard, self(), Count},
+        {kraken_router_shard, start_link, []},
+        % Temporary because we DO not want the supervisor to restart them. The router
+        % will spawn new router shards whenever it restarts.
+        temporary,
+        brutal_kill,
+        worker,
+        [kraken_router_shard]
+        }),
   % Monitor the router so that we can detect when it exits and stop the router,
   % which will cause the supervisor to reboot the entire system.
   monitor(process, NewRouter),
   start_routers(
-      Sup,
-      Count-1,
-      State#state{
-          num_routers=NumRouters+1,
-          routers=array:set(Count-1, NewRouter, Routers)}).
+    Sup,
+    Count-1,
+    State#state{
+      num_routers=NumRouters+1,
+      routers=array:set(Count-1, NewRouter, Routers)}).
 
 router_topics_fold(Fun, Acc, Topics) ->
   dict:fold(Fun, Acc, topics_by_router(Topics)).
@@ -240,14 +240,14 @@ router_topics_fold(Fun, Acc, Topics) ->
 router_fold(Fun, Acc) ->
   State = state(),
   array:foldl(fun(_Idx, Router, Acc2) ->
-    Fun(Router, Acc2)
-  end, Acc, State#state.routers).
+        Fun(Router, Acc2)
+    end, Acc, State#state.routers).
 
 router_aggregate(Fun) ->
   router_fold(fun(Router, Acc) ->
-    R = Fun(Router),
-    lists:append(Acc, R)
-  end, []).
+        R = Fun(Router),
+        lists:append(Acc, R)
+    end, []).
 
 router_map(Fun) ->
   State = state(),
@@ -256,8 +256,8 @@ router_map(Fun) ->
 topics_by_router(Topics) ->
   State = state(),
   lists:foldl(fun(Topic, Dict) ->
-    dict:append(router_for_topic(Topic, State), Topic, Dict)
-  end, dict:new(), Topics).
+        dict:append(router_for_topic(Topic, State), Topic, Dict)
+    end, dict:new(), Topics).
 
 router_for_topic(Topic, _State=#state{num_routers=NumRouters, routers=Routers}) ->
   array:get(erlang:phash2(Topic, NumRouters), Routers).
@@ -324,5 +324,3 @@ stop_kraken_test() ->
 % processes exit.
 
 -endif.
-
-

@@ -39,14 +39,14 @@ start(_Type, _StartArgs) ->
           lists:nthtail(1, Ext)
       end,
       log4erl:add_file_appender(
-          file_log,
-          {filename:dirname(LogFile),
-           filename:basename(filename:rootname(LogFile)),
-           {no_max_size, 0},
-           0, % no rotate
-           LogFileExt,
-           LogLevel,
-           "[%L] %j::%T %l%n"})
+        file_log,
+        {filename:dirname(LogFile),
+         filename:basename(filename:rootname(LogFile)),
+         {no_max_size, 0},
+         0, % no rotate
+         LogFileExt,
+         LogLevel,
+         "[%L] %j::%T %l%n"})
   end,
   % Update the pid file if configured.
   PidFile = case application:get_env(pid_file) of
@@ -77,4 +77,3 @@ stop(PidFile) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
-

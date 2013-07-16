@@ -30,7 +30,7 @@ pluralize(Name, 1) -> lists:flatten(io_lib:format("1 ~s", [Name]));
 pluralize(Name, Count) -> lists:flatten(io_lib:format("~p ~ss", [Count, Name])).
 
 now_to_seconds({Mega, Sec, _}) ->
-    (Mega * 1000000) + Sec.
+  (Mega * 1000000) + Sec.
 
 %%%-----------------------------------------------------------------
 %%% Private
@@ -78,4 +78,3 @@ time_delta_in_words_test() ->
   ok.
 
 -endif.
-
