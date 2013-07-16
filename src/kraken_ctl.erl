@@ -3,7 +3,7 @@
 -module(kraken_ctl).
 
 %% External exports
--export([stop/1, status/1, change_log_level/1, dump_queues/1, dump_queue_topics/1,
+-export([stop/1, status/1, change_log_level/1, dump_waitresses/1, dump_waitress_topics/1,
          dump_topics/1]).
 
 %% ===================================================================
@@ -50,18 +50,18 @@ change_log_level([Node, DebugLevel]) ->
       init:stop(1)
   end.
 
-dump_queues([Node]) ->
+dump_waitresses([Node]) ->
   rpc:call(Node, kraken_router, status, []),
   init:stop(0).
 
-dump_queue_topics([Node, QpidAtom]) ->
-  QpidString = atom_to_list(QpidAtom),
-  Qpids = rpc:call(Node, kraken_router, queue_pids, []),
-  [Qpid] = lists:filter(fun(X) ->
-          string:equal(pid_to_list(X), QpidString)
-      end, Qpids),
-  Topics = rpc:call(Node, kraken_router, topics, [Qpid]),
-  io:format("Queue ~p, topics: ~n", [Qpid]),
+dump_waitress_topics([Node, WpidAtom]) ->
+  WpidString = atom_to_list(WpidAtom),
+  Wpids = rpc:call(Node, kraken_router, dump_waitress_topics, []),
+  [Wpid] = lists:filter(fun(X) ->
+          string:equal(pid_to_list(X), WpidString)
+      end, Wpids),
+  Topics = rpc:call(Node, kraken_router, topics, [Wpid]),
+  io:format("Waitress ~p, topics: ~n", [Wpid]),
   lists:foreach(fun(X) -> io:format("~s~n", [X]) end, Topics),
   init:stop().
 

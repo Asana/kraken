@@ -49,11 +49,11 @@
 %% Request: "get messages\r\n"
 %%
 %% Description:
-%%    Returns all messages that have been published to any of the queues that
+%%    Returns all messages that have been published to any of the waitresses that
 %%    the client was subscribed to when the messages were published.
 %%
 %% Response:
-%%    If there are any messages in the client's queue the server will send a
+%%    If there are any messages in the client's waitress the server will send a
 %%    single memcached item in response to the get request. The value of the
 %%    item itself must be parsed to break out the individual messages.
 %%
@@ -117,7 +117,7 @@
     bytes_remaining=0, % The number of bytes that remain in the command
     buffer=[],         % List of lines that make up a partial request
     request_count=0,   % The number of requests this connection processed
-    qpid               % The kraken_queue process
+    wpid               % The kraken_waitress process
     }).
 
 %% Responses
@@ -139,9 +139,9 @@
 
 init(Socket) ->
   log4erl:debug("(~p) Client connected.", [self()]),
-  QueueName = client_name(Socket),
-  {ok, QPid} = kraken_router:start_queue_link(QueueName),
-  {ok, #state{qpid=QPid}}.
+  WaitressName = client_name(Socket),
+  {ok, WPid} = kraken_router:start_waitress_link(WaitressName),
+  {ok, #state{wpid=WPid}}.
 
 handle_data(<<"quit\r\n">>, Socket, State=#state{bytes_remaining=0}) ->
   handle_and_log_command(?QUIT_COMMAND, empty, Socket, State);
@@ -201,14 +201,14 @@ handle_data(Data, Socket,
           bytes_remaining=BytesRemaining-Bytes}}
   end.
 
-handle_client_disconnect(_Socket, State=#state{qpid=QPid}) ->
+handle_client_disconnect(_Socket, State=#state{wpid=WPid}) ->
   log4erl:debug("(~p) Client disconnected.", [self()]),
-  kraken_queue:stop(QPid),
+  kraken_waitress:stop(WPid),
   {stop, State}.
 
-handle_client_timeout(Socket, State=#state{qpid=Qpid}) ->
+handle_client_timeout(Socket, State=#state{wpid=Wpid}) ->
   log4erl:error("(~p) Client ~s timed out", [self(), client_name(Socket)]),
-  kraken_queue:stop(Qpid),
+  kraken_waitress:stop(Wpid),
   {stop, State}.
 
 handle_server_busy(Socket) ->
@@ -235,28 +235,28 @@ handle_and_log_command(Command, Data, Socket, State) ->
 handle_command(?QUIT_COMMAND, empty, _Socket, State) ->
   {stop, State};
 
-handle_command(?SUBSCRIBE_COMMAND, Data, Socket, State=#state{qpid=QPid}) ->
+handle_command(?SUBSCRIBE_COMMAND, Data, Socket, State=#state{wpid=WPid}) ->
   Topics = binary:split(Data, <<" ">>, [global]),
-  kraken_router:subscribe(QPid, Topics),
+  kraken_router:subscribe(WPid, Topics),
   gen_tcp:send(Socket, ?STORED_RESP),
   {ok, State, Topics};
 
-handle_command(?UNSUBSCRIBE_COMMAND, Data, Socket, State=#state{qpid=QPid}) ->
+handle_command(?UNSUBSCRIBE_COMMAND, Data, Socket, State=#state{wpid=WPid}) ->
   Topics = binary:split(Data, <<" ">>, [global]),
-  kraken_router:unsubscribe(QPid, Topics),
+  kraken_router:unsubscribe(WPid, Topics),
   gen_tcp:send(Socket, ?STORED_RESP),
   {ok, State, Topics};
 
-handle_command(?PUBLISH_COMMAND, Data, Socket, State=#state{qpid=QPid}) ->
+handle_command(?PUBLISH_COMMAND, Data, Socket, State=#state{wpid=WPid}) ->
   Entries = parse_publish_entries(Data),
   lists:foreach(fun({Topics, Message}) ->
-        kraken_router:publish(QPid, Topics, Message)
+        kraken_router:publish(WPid, Topics, Message)
     end, Entries),
   gen_tcp:send(Socket, ?STORED_RESP),
   {ok, State, Entries};
 
-handle_command(?MESSAGES_COMMAND, empty, Socket, State=#state{qpid=QPid}) ->
-  Messages = kraken_queue:receive_messages(QPid),
+handle_command(?MESSAGES_COMMAND, empty, Socket, State=#state{wpid=WPid}) ->
+  Messages = kraken_waitress:receive_messages(WPid),
   case Messages of
     [] ->
       gen_tcp:send(Socket, <<"END\r\n">>);

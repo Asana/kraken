@@ -4,9 +4,8 @@ assert_received_messages(Results, ExpectedResults) ->
   % topics that have the same set of subscribers, we do not test for that here since
   % router sharding can still cause those messages to be duplicated.
   Result = lists:all(fun({ExpectedTopic, ExpectedMessage}) ->
-    lists:any(fun({ActualTopics, ActualMessage}) ->
-      lists:member(ExpectedTopic, ActualTopics) and (ActualMessage =:= ExpectedMessage)
-    end, Results)
-  end, ExpectedResults),
+          lists:any(fun({ActualTopics, ActualMessage}) ->
+                lists:member(ExpectedTopic, ActualTopics) and (ActualMessage =:= ExpectedMessage)
+            end, Results)
+      end, ExpectedResults),
   ?assert(Result =:= true).
-
