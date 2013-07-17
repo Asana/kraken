@@ -248,6 +248,7 @@ handle_command(?QUIT_COMMAND, empty, _Socket, State) ->
   {stop, State};
 
 handle_command(?REGISTER_COMMAND, Data, Socket, State=#state{wpid=WPid}) ->
+  log4erl:debug("In Memcached:handle_command (register...)"),
   kraken_router:register(WPid),
   gen_tcp:send(Socket, ?STORED_RESP),
   {ok, State};

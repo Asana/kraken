@@ -16,6 +16,7 @@
 -export([start_link/0, subscribe/3, unsubscribe/3, publish/4,
          topics/2, topic_status/1, waitress_pids/1]).
 
+-compile(export_all).
 %%%-----------------------------------------------------------------
 %%% Definitions
 %%%-----------------------------------------------------------------
@@ -25,9 +26,9 @@
 
 -record(state, {
     % Total count of topics in the system
-    topic_count=0,
     pid_to_topics,
-    topic_to_pids
+    topic_to_pids,
+    serial_number
     }).
 
 %%%-----------------------------------------------------------------
@@ -36,6 +37,14 @@
 
 start_link() ->
   gen_server:start_link(?MODULE, [], []).
+
+%% @doc Gets and returns the serial from the Router Shard with 
+%% Pid = RPid
+%%
+%% @spec register(RPid :: pid(), WPid :: pid()) -> ok
+register(RPid, WPid) -> %%Not using WPid atm
+  log4erl:debug("In router_shard:register"),
+  gen_server:call(RPid, {register, WPid}).
 
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
@@ -93,10 +102,17 @@ topic_status(RPid) ->
 
 init([]) ->
   {ok, #state{
-      pid_to_topics=
-      ets:new(list_to_atom(?TABLE_PREFIX ++ "pid_to_topics"), [bag]),
-      topic_to_pids=
-      ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag])}}.
+      pid_to_topics = ets:new(list_to_atom(?TABLE_PREFIX ++ "pid_to_topics"), [bag]),
+      topic_to_pids = ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag]),
+      serial_number = 0
+      }}.
+
+%% @doc Incs and returns the current Serial
+handle_call({register, WPid}, _From,
+            State=#state{serial_number=SerialNumber}) ->
+  NextSerial = SerialNumber + 1,
+  io:format("shard:handle_call:register.NextSerial: ~p\n", [NextSerial]),
+  {reply, NextSerial, State#state{serial_number=NextSerial}};
 
 handle_call({subscribe, WPid, Topics}, _From,
             State=#state{pid_to_topics=PidToTopics,
@@ -134,7 +150,7 @@ handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
 %% to the caller so we leave all of the logic in the router for now. Routers are
 %% already sharded so this should leverage multiple cores regardless.
 handle_cast({publish, PublisherWPid, Topics, Message},
-            State=#state{topic_to_pids=TopicToPids}) ->
+            State=#state{topic_to_pids=TopicToPids, serial_number=SerialNumber}) ->
   % Creates a list like [{Topic1, Pid1}, {Topic1, Pid2}, {Topic2, Pid1}].
   TopicPidPairs = lists:flatten(
       lists:map(fun(Topic) ->
@@ -176,11 +192,11 @@ handle_cast({publish, PublisherWPid, Topics, Message},
       end;
     undefined -> ok
   end,
-  {noreply, State};
+  {noreply, State#state{serial_number=SerialNumber + 1}};
 
 % Cast is ok for register because it's ok if we are not notified immediatly
 % when a WPid process dies.
-handle_cast({register, WPid}, State) ->
+handle_cast({register_waitress, WPid}, State) ->
   erlang:monitor(process, WPid),
   {noreply, State}.
 

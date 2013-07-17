@@ -53,7 +53,7 @@ start_waitress_link(Name) ->
   % them ourself to be more OTP compliant.
   {ok, WPid} = kraken_waitress:start_link(Name),
   router_map(fun(Router) ->
-        gen_server:cast(Router, {register, WPid})
+        gen_server:cast(Router, {register_waitress, WPid})
     end),
   {ok, WPid}.
 
@@ -62,11 +62,13 @@ start_waitress_link(Name) ->
 %%
 %% @spec register(WPid :: pid(), Topics :: [string()]) -> ok
 register(WPid) ->
-  %% router_topics_fold(fun(Router, RouterTopics, _Acc) ->
-  %%   % TODO: Consider doing this and unregister in parallel to improve performance
-  %%   kraken_router_shard:register(Router, WPid, RouterTopics)
-  %% end, undefined, Topics),
-  log4erl:debug("IN KRAKEN ROUTER REGISTER !!!!"),
+  %% TODO: FOR EACH SHARD, INC AND STORE SERIAL AND THEN RETURN
+  %% THE AGGREGATED HORIZON
+  log4erl:debug("IN KRAKEN ROUTER REGISTER !!!"),
+  Horizon = router_map(fun(Router) ->
+    kraken_router_shard:register(Router, WPid)
+    end),
+  io:format("Horizon: ~p \n", [Horizon]),
   ok.
 
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
