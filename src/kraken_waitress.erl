@@ -12,7 +12,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 %% API
--export([start_link/1, enqueue_message/3, receive_messages/1, stop/1, status/1]).
+-export([start_link/1, set_horizon/2, enqueue_message/3, receive_messages/1, stop/1, status/1]).
 
 %%%-----------------------------------------------------------------
 %%% Definitions
@@ -31,7 +31,8 @@
     start_time,
     % The time of the last request to receive messages or the start time if
     % no requests have been made.
-    last_receive_messages_time
+    last_receive_messages_time,
+    horizon
     }).
 
 %%%-----------------------------------------------------------------
@@ -46,6 +47,12 @@ status(Pid) ->
 
 receive_messages(Pid) ->
   gen_server:call(Pid, receive_messages).
+
+set_horizon(Pid, Horizon) ->
+  io:format("In waitress:set_horizon\n"),
+  io:format("Horizon: ~p \n", [Horizon]),
+  %% why isnt the handle_call able to get V Horizon?
+  gen_server:call(Pid, {set_horizon, Horizon}).
 
 enqueue_message(Pid, Topics, Message) ->
   gen_server:cast(Pid, {enqueue_message, Topics, Message}).
@@ -62,7 +69,8 @@ init([Name]) ->
   {ok, #state{
       name=Name,
       start_time=StartTime,
-      last_receive_messages_time=StartTime}}.
+      last_receive_messages_time=StartTime,
+      horizon = dict:new()}}.
 
 handle_call(status, _From,
             State=#state{
@@ -84,7 +92,12 @@ handle_call(status, _From,
 
 handle_call(receive_messages, _From, State=#state{queue=Queue}) ->
   {reply, lists:reverse(Queue),
-   State#state{queue=[], last_receive_messages_time=now()}}.
+   State#state{queue=[], last_receive_messages_time=now()}};
+
+handle_call({set_horizon, NewHorizon}, _From, State=#state{horizon=OldHorizon}) ->
+  io:format("OLD HORIZON: ~p \n", [OldHorizon]),
+  io:format("NEW HORIZON: ~p \n", [NewHorizon]),
+  {reply, ok, State#state{horizon=NewHorizon}}.
 
 handle_cast({enqueue_message, Topics, Message},
             State=#state{

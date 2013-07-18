@@ -63,15 +63,15 @@ start_waitress_link(Name) ->
 %% @spec get_horizon(WPid :: pid(), Topics :: [string()]) -> {pids: serials}
 get_horizon() ->
   log4erl:debug("IN KRAKEN ROUTER REGISTER !!!"),
-  Horizon = router_map(fun(RPid) ->
+  RPidSerialPairs = router_map(fun(RPid) ->
           {RPid, kraken_router_shard:get_serial(RPid)}
       end),
-  Mappings = lists:foldl(fun(Pair, Dict) ->
+  Horizon = lists:foldl(fun(Pair, Dict) ->
           {RPid, Serial} = Pair,
           dict:store(RPid, Serial, Dict) end,
-                         dict:new(), Horizon),
-  io:format("Horizon: ~p \n Mappings: ~p\n", [Horizon, Mappings]),
-  Mappings.
+                        dict:new(), RPidSerialPairs),
+  io:format("Horizon: ~p \n", [Horizon]),
+  Horizon.
 
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
