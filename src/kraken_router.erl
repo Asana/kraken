@@ -66,9 +66,13 @@ register(WPid) ->
   %% THE AGGREGATED HORIZON
   log4erl:debug("IN KRAKEN ROUTER REGISTER !!!"),
   Horizon = router_map(fun(Router) ->
-    kraken_router_shard:register(Router, WPid)
-    end),
-  io:format("Horizon: ~p \n", [Horizon]),
+          {Router, kraken_router_shard:register(Router, WPid)}
+      end),
+  Mappings = lists:foldl(fun(Pair, Dict) ->
+          {Router, Serial} = Pair,
+          dict:store(Router, Serial, Dict) end,
+                         dict:new(), Horizon),
+  io:format("Horizon: ~p \n Mappings: ~p\n", [Horizon, Mappings]),
   ok.
 
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
