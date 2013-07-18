@@ -57,23 +57,21 @@ start_waitress_link(Name) ->
     end),
   {ok, WPid}.
 
-%% @doc registers WPid so the retroction has a place to start from.
-%% The serial_number from each Router Shard gets stored in the waitresses horizon
-%%
-%% @spec register(WPid :: pid(), Topics :: [string()]) -> ok
-register(WPid) ->
-  %% TODO: FOR EACH SHARD, INC AND STORE SERIAL AND THEN RETURN
-  %% THE AGGREGATED HORIZON
+%% @doc Returns the current Horizon
+%% Gets the current serial from each router_shard, and then
+%% returns a dict that maps router_shard processes to serial numbers
+%% @spec get_horizon(WPid :: pid(), Topics :: [string()]) -> {pids: serials}
+get_horizon() ->
   log4erl:debug("IN KRAKEN ROUTER REGISTER !!!"),
-  Horizon = router_map(fun(Router) ->
-          {Router, kraken_router_shard:register(Router, WPid)}
+  Horizon = router_map(fun(RPid) ->
+          {RPid, kraken_router_shard:get_serial(RPid)}
       end),
   Mappings = lists:foldl(fun(Pair, Dict) ->
-          {Router, Serial} = Pair,
-          dict:store(Router, Serial, Dict) end,
+          {RPid, Serial} = Pair,
+          dict:store(RPid, Serial, Dict) end,
                          dict:new(), Horizon),
   io:format("Horizon: ~p \n Mappings: ~p\n", [Horizon, Mappings]),
-  ok.
+  Mappings.
 
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
@@ -190,9 +188,9 @@ handle_call(state, _From, State) ->
 
 % Cast is ok for register because it's ok if we are not notified immediatly
 % when a WPid process dies.
-handle_cast({register, WPid}, State=#state{routers=Routers}) ->
+handle_cast({register_waitress, WPid}, State=#state{routers=Routers}) ->
   array:map(fun(Router) ->
-        gen_server:cast(Router, {register, WPid})
+        gen_server:cast(Router, {register_waitress, WPid})
     end, Routers),
   {noreply, State}.
 

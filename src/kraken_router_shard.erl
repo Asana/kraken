@@ -41,10 +41,10 @@ start_link() ->
 %% @doc Gets and returns the serial from the Router Shard with 
 %% Pid = RPid
 %%
-%% @spec register(RPid :: pid(), WPid :: pid()) -> ok
-register(RPid, WPid) -> %%Not using WPid atm
+%% @spec register(RPid :: pid(), WPid :: pid()) -> serial#
+get_serial(RPid) -> %%Not using WPid atm
   log4erl:debug("In router_shard:register"),
-  gen_server:call(RPid, {register, WPid}).
+  gen_server:call(RPid, get_serial).
 
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
@@ -108,7 +108,7 @@ init([]) ->
       }}.
 
 %% @doc Incs and returns the current Serial
-handle_call({register, WPid}, _From,
+handle_call(get_serial, _From,
             State=#state{serial_number=SerialNumber}) ->
   NextSerial = SerialNumber + 1,
   io:format("shard:handle_call:register.NextSerial: ~p\n", [NextSerial]),
