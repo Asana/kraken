@@ -30,6 +30,7 @@ push(Item, {Queue, Bound, Len}) ->
       {queue:in(Item, Queue), Bound, Len + 1}
   end.
 
+%% @doc Return the item at the head of the queue
 %% @spec push(bounded_queue()) -> Type()
 peek({Queue, _Bound, _Len}) ->
   Q = queue:out(Queue),
@@ -40,6 +41,7 @@ peek({Queue, _Bound, _Len}) ->
       empty
   end.
 
+%% @doc Return everything by the head of the queue
 %% @spec push(bounded_queue()) -> bounded_queue()
 drop({Queue, Bound, Len}) ->
   {queue:drop(Queue), Bound, Len - 1}.
@@ -55,8 +57,11 @@ update_bound(NewBound, BQueue={Queue, _Bound, Len}) ->
       {Queue, NewBound, Len}
   end.
 
+%% @doc Return the number of items in the queue
+%% @spec push(bounded_queue()) -> int()
 len({_Queue, _Bound, Len}) ->
   Len.
 
+%% @spec push(bounded_queue()) -> int()
 bound({_Queue, Bound, _Len}) ->
   Bound.
