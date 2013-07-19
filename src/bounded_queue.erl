@@ -21,13 +21,14 @@ new(Bound) ->
 
 %% @doc Returns the result of adding Item to queue.
 %% Drops Item at head of the queue if the queue is at its max size
-%% @spec push(Item :: Type(), bounded_queue()) -> bounded_queue()
+%% @spec push(Item :: Type(), bounded_queue()) -> {Type(), bounded_queue()}
 push(Item, {Queue, Bound, Len}) ->
   if (Len =:= Bound) ->
       log4erl:warn("Dropped Item. Queue at Maximum Size: ~p", [Bound]),
-      {queue:in(Item, queue:drop(Queue)), Bound, Len};
+      {{value, DroppedItem }, SmallerQueue} = queue:out(Queue),
+      {{dropped, DroppedItem}, {queue:in(Item, SmallerQueue), Bound, Len}};
     true ->
-      {queue:in(Item, Queue), Bound, Len + 1}
+      {normal, {queue:in(Item, Queue), Bound, Len + 1}}
   end.
 
 %% @doc Return the item at the head of the queue

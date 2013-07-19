@@ -28,7 +28,8 @@
     % Total count of topics in the system
     pid_to_topics,
     topic_to_pids,
-    serial_number
+    serial_number,
+    eviction_queue
     }).
 
 %%%-----------------------------------------------------------------
@@ -101,10 +102,12 @@ topic_status(RPid) ->
 %%%-----------------------------------------------------------------
 
 init([]) ->
+  {ok, MessagesStoredPerRouterShard} = application:get_env(messages_stored_per_router_shard),
   {ok, #state{
       pid_to_topics = ets:new(list_to_atom(?TABLE_PREFIX ++ "pid_to_topics"), [bag]),
       topic_to_pids = ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag]),
-      serial_number = 0
+      serial_number = 0,
+      eviction_queue = bounded_queue:new(MessagesStoredPerRouterShard)
       }}.
 
 %% @doc Incs and returns the current Serial
@@ -149,13 +152,26 @@ handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
 %% approach is that it may be expensive to return large lists of subscribers
 %% to the caller so we leave all of the logic in the router for now. Routers are
 %% already sharded so this should leverage multiple cores regardless.
+
+%% Things we do here:
+%% inc the serial
+%% take the message and push the messagepack into the EvictionQueue
+%% if something was dropped, nextMapg = new, else nextMap = current
+%% enqueue messages normally
+
 handle_cast({publish, PublisherWPid, Topics, Message},
-            State=#state{topic_to_pids=TopicToPids, serial_number=SerialNumber}) ->
+            State=#state{topic_to_pids=TopicToPids, 
+                         eviction_queue=CurrentEvictionQueue,
+                         serial_number=CurrentSerialNumber}) ->
+  NextSerial = CurrentSerialNumber + 1,
+  MessagePack = {Message, Topics, NextSerial},
+  {EvictionPushSignal, NextEvictionQueue} = bounded_queue:push(MessagePack, CurrentEvictionQueue),
+  %% NextQueueMap = next_queue_map(CurrentQueueMap, EvictionPushSignal),
+
   % Creates a list like [{Topic1, Pid1}, {Topic1, Pid2}, {Topic2, Pid1}].
   TopicPidPairs = lists:flatten(
       lists:map(fun(Topic) ->
-            ets:lookup(TopicToPids, Topic)
-        end, Topics)),
+            ets:lookup(TopicToPids, Topic) end, Topics)),
 
   % TODO:
   % All of this work we do to ensure we only enqueue a single message per subscriber
@@ -192,7 +208,7 @@ handle_cast({publish, PublisherWPid, Topics, Message},
       end;
     undefined -> ok
   end,
-  {noreply, State#state{serial_number=SerialNumber + 1}};
+  {noreply, State#state{serial_number=NextSerial, eviction_queue=NextEvictionQueue}};
 
 % Cast is ok for register because it's ok if we are not notified immediatly
 % when a WPid process dies.
