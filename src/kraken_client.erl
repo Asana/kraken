@@ -36,8 +36,7 @@ unsubscribe(Socket, Topics) ->
   topic_command(Socket, <<"unsubscribe">>, Topics).
 
 publish(Socket, MessageEntries) ->
-  {DataBytes, DataBlock} =
-                           kraken_memcached:serialize_message_entries(MessageEntries),
+  {DataBytes, DataBlock} = kraken_memcached:serialize_message_entries(MessageEntries),
   set_command(Socket, <<"publish">>, DataBytes, DataBlock).
 
 receive_messages(Socket) ->

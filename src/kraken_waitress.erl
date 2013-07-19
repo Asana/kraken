@@ -55,6 +55,7 @@ set_horizon(Pid, Horizon) ->
   gen_server:call(Pid, {set_horizon, Horizon}).
 
 enqueue_message(Pid, Topics, Message) ->
+  io:format("Enqueueing Message: ~p, ~p, ~p\n", [Message, Pid, Topics]),
   gen_server:cast(Pid, {enqueue_message, Topics, Message}).
 
 stop(Pid) ->
