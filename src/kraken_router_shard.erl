@@ -41,7 +41,7 @@ start_link() ->
 %% @doc Gets and returns the serial from the Router Shard with 
 %% Pid = RPid
 %%
-%% @spec register(RPid :: pid(), WPid :: pid()) -> serial#
+%% @spec register(RPid :: pid(), WPid :: pid()) -> int()
 get_serial(RPid) -> %%Not using WPid atm
   log4erl:debug("In router_shard:register"),
   gen_server:call(RPid, get_serial).
