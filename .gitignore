@@ -21,6 +21,7 @@ _test
 # ignore IntelliJ files
 *.iws
 /admin/intellij/out/
+.idea*
 
 # Random mac files
 .DS_Store
