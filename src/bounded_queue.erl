@@ -31,7 +31,7 @@ push(Item, {Queue, Bound, Len}) ->
   end.
 
 %% @doc Return the item at the head of the queue
-%% @spec push(bounded_queue()) -> Type()
+%% @spec peek(bounded_queue()) -> Type()
 peek({Queue, _Bound, _Len}) ->
   Q = queue:out(Queue),
   case Q of
@@ -42,13 +42,13 @@ peek({Queue, _Bound, _Len}) ->
   end.
 
 %% @doc Return everything by the head of the queue
-%% @spec push(bounded_queue()) -> bounded_queue()
+%% @spec drop(bounded_queue()) -> bounded_queue()
 drop({Queue, Bound, Len}) ->
   {queue:drop(Queue), Bound, Len - 1}.
 
 %% @doc Returns Bounded Queue with updated bound
 %% If the new bound is smaller than len, will drop items at head
-%% @spec push(NewBound :: int(), BQueue:: bounded_queue()) -> bounded_queue()
+%% @spec update_bound(NewBound :: int(), BQueue:: bounded_queue()) -> bounded_queue()
 update_bound(NewBound, BQueue={Queue, _Bound, Len}) ->
   if (NewBound < Len) ->
       log4erl:warn("Dropping Item. Bound : ~p, Len: ~p", [NewBound, Len]),
@@ -58,10 +58,10 @@ update_bound(NewBound, BQueue={Queue, _Bound, Len}) ->
   end.
 
 %% @doc Return the number of items in the queue
-%% @spec push(bounded_queue()) -> int()
+%% @spec len(bounded_queue()) -> int()
 len({_Queue, _Bound, Len}) ->
   Len.
 
-%% @spec push(bounded_queue()) -> int()
+%% @spec bound(bounded_queue()) -> int()
 bound({_Queue, Bound, _Len}) ->
   Bound.

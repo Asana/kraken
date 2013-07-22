@@ -30,7 +30,7 @@
     topic_to_pids,
     serial_number,
     eviction_queue,
-    mqueue_map
+    per_topic_message_queue
     }).
 
 %%%-----------------------------------------------------------------
@@ -109,8 +109,13 @@ init([]) ->
       pid_to_topics = ets:new(list_to_atom(?TABLE_PREFIX ++ "pid_to_topics"), [bag]),
       topic_to_pids = ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag]),
       serial_number = 0,
+      %% Bounded queue for keeping track of what we stick into the per_topic_message_queue
+      %% This is used for bookeeping for evicting things from the per_topic_message_queue
+      %% [{Topics[], Serial#}, ...]
       eviction_queue = bounded_queue:new(MessagesStoredPerRouterShard),
-      mqueue_map = {}
+      %% Keeps track of the recent messages for a given topic
+      %% {Topic => Queue()}
+      per_topic_message_queue = dict:new()
       }}.
 
 %% @doc Incs and returns the current Serial
@@ -162,33 +167,61 @@ handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
 %% if something was dropped, nextMapg = new, else nextMap = current
 %% enqueue messages normally
 
-%% Generates the mqueue_map after the dirty messages are evicted
-get_clean_mqueue_map(MQueueMap, value) ->
+%% Generates the per_topic_message_queue after the dirty messages are evicted
+%% Erases KV Pairs if the value-queue is emptied
+get_clean_per_topic_message_queue(MQueueMap, normal) ->
   MQueueMap;
-get_clean_mqueue_map(MQueueMap, {dropped, DroppedTopics}) ->
-  5.
+get_clean_per_topic_message_queue(MQueueMap, {dropped, TopicPack}) ->
+  %% TODO: assert that the queue isnt already empty
+  {DroppedTopics, _Serial} = TopicPack,
+  list:foldl(fun (Topic, AccIn) -> 
+        Map = dict:update(Topic, fun (Q) -> queue:drop(Q) end, queue:new(), AccIn),
+        SubQueue = dict:fetch(Topic, Map),
+        IsEmpty = queue:is_empty(SubQueue),
+        if IsEmpty ->
+            dict:erase(Topic, Map);
+          true ->
+            Map
+        end
+    end, MQueueMap, DroppedTopics).
 
-%% Generate the mqueue_map after the new messagepack is added
-push_mpack_on_mqueue_map(MQueueMap, MessagePack) ->
-  5
-  .
+%% Generate the per_topic_message_queue after the new messagepack is added
+push_mpack_on_per_topic_message_queue(MQueueMap, MessagePack) ->
+  {Message, Topics, _NextSerial} = MessagePack,
+  list:foldl(fun (Topic, AccIn) -> 
+        dict:update(Topic, fun (Q) -> queue:in(Message, Q) end,
+                    queue:new(), AccIn) end,
+             MQueueMap, Topics).
 
-next_mqueue_map(CurrentMQueueMap, EvictionSignal, MessagePack) ->
-  CleanedMQueueMap = get_clean_mqueue_map(CurrentMQueueMap, EvictionSignal),
-  push_mpack_on_mqueue_map(CleanedMQueueMap, MessagePack).
+%% Takes in the current MessageQueueMap and returns a new one, updated
+%% to have evicted and then pushed items
+next_per_topic_message_queue(CurrentMQueueMap, EvictionSignal, MessagePack) ->
+  log4erl:debug("In next_per_topic_message_queue: esig: ~p", [EvictionSignal]),
+  CleanedMQueueMap = get_clean_per_topic_message_queue(CurrentMQueueMap, EvictionSignal),
+  push_mpack_on_per_topic_message_queue(CleanedMQueueMap, MessagePack).
 
 handle_cast({publish, PublisherWPid, Topics, Message},
             State=#state{topic_to_pids=TopicToPids, 
                          eviction_queue=CurrentEvictionQueue,
                          serial_number=CurrentSerialNumber,
-                         mqueue_map=CurrentMQueueMap}) ->
+                         per_topic_message_queue=CurrentMQueueMap}) ->
+  %% Compute the Next Serial Number
   NextSerial = CurrentSerialNumber + 1,
-  MessageInfo = {Topics, NextSerial},
-  {EvictionSignal, NextEvictionQueue} = bounded_queue:push(MessageInfo, CurrentEvictionQueue),
-  log4erl:debug("Pushed into Queue: ~p", [MessageInfo]),
+  %% The minimum information to know how to: rm things from the message queue
+  %% and to know if the client serial is too old to retroact properly
+  TopicPack = {Topics, NextSerial},
+  {EvictionSignal, NextEvictionQueue} = bounded_queue:push(TopicPack, CurrentEvictionQueue),
+  log4erl:debug("Pushed into Queue: ~p", [TopicPack]),
   log4erl:debug("EvictionSignal: ~p", [EvictionSignal]),
+
+
+  %% The data we store in the message queue is constructed from this MessagePack
+  %% For each Topic Key we store the message
   MessagePack = {Message, Topics, NextSerial},
-  NextMQueueMap = next_mqueue_map(CurrentMQueueMap, EvictionSignal, MessagePack),
+  log4erl:debug("MessagePack: ~p", [MessagePack]),
+  NextMQueueMap = next_per_topic_message_queue(CurrentMQueueMap, EvictionSignal, MessagePack),
+
+  log4erl:debug("NextMQueueMap: ~p", [NextMQueueMap]),
 
   % Creates a list like [{Topic1, Pid1}, {Topic1, Pid2}, {Topic2, Pid1}].
   TopicPidPairs = lists:flatten(
@@ -232,8 +265,8 @@ handle_cast({publish, PublisherWPid, Topics, Message},
   end,
   {noreply, State#state{
       serial_number=NextSerial, 
-      eviction_queue=NextEvictionQueue
-      mqueue_map=NextMQueueMap}};
+      eviction_queue=NextEvictionQueue,
+      per_topic_message_queue=NextMQueueMap}};
 
 % Cast is ok for register because it's ok if we are not notified immediatly
 % when a WPid process dies.

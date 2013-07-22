@@ -1,5 +1,3 @@
-%% @doc Generic queue
-
 -module(kraken_waitress).
 
 -behavior(gen_server).
@@ -32,6 +30,9 @@
     % The time of the last request to receive messages or the start time if
     % no requests have been made.
     last_receive_messages_time,
+    %% Contains the serial number the router shards had at the time
+    %% the client did the Register operation
+    %% {RShardPid => int()}
     horizon
     }).
 
