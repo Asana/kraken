@@ -174,8 +174,8 @@ get_clean_per_topic_message_queue(MQueueMap, normal) ->
 get_clean_per_topic_message_queue(MQueueMap, {dropped, TopicPack}) ->
   %% TODO: assert that the queue isnt already empty
   {DroppedTopics, _Serial} = TopicPack,
-  list:foldl(fun (Topic, AccIn) -> 
-        Map = dict:update(Topic, fun (Q) -> queue:drop(Q) end, queue:new(), AccIn),
+  lists:foldl(fun (Topic, AccIn) -> 
+        Map = dict:update(Topic, fun queue:drop/1, AccIn),
         SubQueue = dict:fetch(Topic, Map),
         IsEmpty = queue:is_empty(SubQueue),
         if IsEmpty ->
@@ -188,7 +188,7 @@ get_clean_per_topic_message_queue(MQueueMap, {dropped, TopicPack}) ->
 %% Generate the per_topic_message_queue after the new messagepack is added
 push_mpack_on_per_topic_message_queue(MQueueMap, MessagePack) ->
   {Message, Topics, _NextSerial} = MessagePack,
-  list:foldl(fun (Topic, AccIn) -> 
+  lists:foldl(fun (Topic, AccIn) -> 
         dict:update(Topic, fun (Q) -> queue:in(Message, Q) end,
                     queue:new(), AccIn) end,
              MQueueMap, Topics).
@@ -196,7 +196,6 @@ push_mpack_on_per_topic_message_queue(MQueueMap, MessagePack) ->
 %% Takes in the current MessageQueueMap and returns a new one, updated
 %% to have evicted and then pushed items
 next_per_topic_message_queue(CurrentMQueueMap, EvictionSignal, MessagePack) ->
-  log4erl:debug("In next_per_topic_message_queue: esig: ~p", [EvictionSignal]),
   CleanedMQueueMap = get_clean_per_topic_message_queue(CurrentMQueueMap, EvictionSignal),
   push_mpack_on_per_topic_message_queue(CleanedMQueueMap, MessagePack).
 
@@ -211,8 +210,9 @@ handle_cast({publish, PublisherWPid, Topics, Message},
   %% and to know if the client serial is too old to retroact properly
   TopicPack = {Topics, NextSerial},
   {EvictionSignal, NextEvictionQueue} = bounded_queue:push(TopicPack, CurrentEvictionQueue),
-  log4erl:debug("Pushed into Queue: ~p", [TopicPack]),
   log4erl:debug("EvictionSignal: ~p", [EvictionSignal]),
+  log4erl:debug("Pushed into Queue: ~p", [TopicPack]),
+  log4erl:debug("New EvictionQueue: ~p", [NextEvictionQueue]),
 
 
   %% The data we store in the message queue is constructed from this MessagePack
