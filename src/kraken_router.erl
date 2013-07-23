@@ -76,7 +76,9 @@ get_horizon() ->
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
 %% Subscribers will not receive their own messages.
-%%
+%%TODO#Performance: If we moved this blocking call into the waitress it would 
+%% take this bottleneck out of the central router. Right now there is a single process 
+%% that blocks for every single client subscribe and unsubscribe
 %% @spec subscribe(WPid :: pid(), Topics :: [string()]) -> ok
 subscribe(WPid, Topics) ->
   router_topics_fold(fun(Router, RouterTopics, _Acc) ->

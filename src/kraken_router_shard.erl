@@ -172,15 +172,22 @@ handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
 get_clean_per_topic_message_queue(MQueueMap, normal) ->
   MQueueMap;
 get_clean_per_topic_message_queue(MQueueMap, {dropped, TopicPack}) ->
+  log4erl:debug("DROPPNIG STUFF"),
   %% TODO: assert that the queue isnt already empty
   {DroppedTopics, _Serial} = TopicPack,
   lists:foldl(fun (Topic, AccIn) -> 
-        Map = dict:update(Topic, fun queue:drop/1, AccIn),
+        log4erl:debug("DICT IS: ~p", [AccIn]),
+        log4erl:debug("TOPIC IS: ~p", [Topic]),
+        log4erl:debug("QUEUE IS: ~p", [dict:fetch(Topic, AccIn)]),
+        Map = dict:update(Topic, fun (Q) -> queue:drop(Q) end, AccIn),
+        log4erl:debug("NEW DICT IS: ~p", [Map]),
         SubQueue = dict:fetch(Topic, Map),
         IsEmpty = queue:is_empty(SubQueue),
         if IsEmpty ->
+            log4erl:debug("SUBQUEUE WAS EMPTY"),
             dict:erase(Topic, Map);
           true ->
+            log4erl:debug("SUBQUEUE WAS NOT empty Keeping it"),
             Map
         end
     end, MQueueMap, DroppedTopics).
@@ -190,7 +197,7 @@ push_mpack_on_per_topic_message_queue(MQueueMap, MessagePack) ->
   {Message, Topics, _NextSerial} = MessagePack,
   lists:foldl(fun (Topic, AccIn) -> 
         dict:update(Topic, fun (Q) -> queue:in(Message, Q) end,
-                    queue:new(), AccIn) end,
+                    queue:in(Message, queue:new()), AccIn) end,
              MQueueMap, Topics).
 
 %% Takes in the current MessageQueueMap and returns a new one, updated
@@ -315,3 +322,25 @@ ets_keys(_Tab, '$end_of_table', Acc) ->
 ets_keys(Tab, Key, Acc) ->
   Next = ets:next(Tab, Key),
   ets_keys(Tab, Next, [Key|Acc]).
+
+%%%-----------------------------------------------------------------
+%%% Tests
+%%%-----------------------------------------------------------------
+
+-include_lib("eunit/include/eunit.hrl").
+-ifdef(TEST).
+-include_lib("kraken_test.hrl").
+
+retroact_simulate_test() ->
+  Socket = kraken_client:new_client(),
+  Publisher = kraken_client:new_client(),
+  ok = kraken_client:subscribe(Socket, [<<"topic">>]),
+  ok = kraken_client:publish(Publisher,
+                             [{[<<"topic">>, <<"other">>], <<"m1">>},
+                              {[<<"topic">>], <<"m2">>},
+                              {[<<"topic">>], <<"m3">>},
+                              {[<<"topic">>], <<"m4">>},
+                              {[<<"topic">>], <<"m5">>},
+                              {[<<"topic">>], <<"m6">>}
+                             ]).
+-endif.
