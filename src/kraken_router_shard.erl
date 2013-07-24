@@ -170,7 +170,7 @@ handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
     true ->
       {reply, 
        lists:foldl(fun (Topic, AccIn) ->
-              log4erl:debug("About to Fetch topic queue for topic: ~p" , [Topic]),
+              %% log4erl:debug("About to Fetch topic queue for topic: ~p" , [Topic]),
               ContainsTopic = dict:is_key(Topic, QueueMap),
               if ContainsTopic ->
                   SubQueue = dict:fetch(Topic, QueueMap),
@@ -187,7 +187,7 @@ get_messages_above_limit(Queue, MinSerial, AggList) ->
   case Item of
     empty ->
       AggList;
-    {value, MessagePack = {Message, Topics, Serial}} ->
+    {value, MessagePack = {_Message, _Topics, Serial}} ->
       if (Serial < MinSerial) ->
           AggList;
       true ->
@@ -213,22 +213,22 @@ get_messages_above_limit(Queue, MinSerial, AggList) ->
 get_clean_per_topic_message_queue(MQueueMap, normal) ->
   MQueueMap;
 get_clean_per_topic_message_queue(MQueueMap, {dropped, TopicPack}) ->
-  log4erl:debug("DROPPNIG STUFF"),
+  %% log4erl:debug("Dropping STUFF"),
   %% TODO: assert that the queue isnt already empty
   {DroppedTopics, _Serial} = TopicPack,
   lists:foldl(fun (Topic, AccIn) -> 
-        log4erl:debug("DICT IS: ~p", [AccIn]),
-        log4erl:debug("TOPIC IS: ~p", [Topic]),
-        log4erl:debug("QUEUE IS: ~p", [dict:fetch(Topic, AccIn)]),
+        %% log4erl:debug("DICT IS: ~p", [AccIn]),
+        %% log4erl:debug("TOPIC IS: ~p", [Topic]),
+        %% log4erl:debug("QUEUE IS: ~p", [dict:fetch(Topic, AccIn)]),
         Map = dict:update(Topic, fun (Q) -> queue:drop(Q) end, AccIn),
-        log4erl:debug("NEW DICT IS: ~p", [Map]),
+        %% log4erl:debug("NEW DICT IS: ~p", [Map]),
         SubQueue = dict:fetch(Topic, Map),
         IsEmpty = queue:is_empty(SubQueue),
         if IsEmpty ->
-            log4erl:debug("SUBQUEUE WAS EMPTY"),
+            %% log4erl:debug("SUBQUEUE WAS EMPTY"),
             dict:erase(Topic, Map);
           true ->
-            log4erl:debug("SUBQUEUE WAS NOT empty Keeping it"),
+            %% log4erl:debug("SUBQUEUE WAS NOT empty Keeping it"),
             Map
         end
     end, MQueueMap, DroppedTopics).
@@ -258,18 +258,18 @@ handle_cast({publish, PublisherWPid, Topics, Message},
   %% and to know if the client serial is too old to retroact properly
   TopicPack = {Topics, NextSerial},
   {EvictionSignal, NextEvictionQueue} = bounded_queue:push(TopicPack, CurrentEvictionQueue),
-  log4erl:debug("EvictionSignal: ~p", [EvictionSignal]),
-  log4erl:debug("Pushed into Queue: ~p", [TopicPack]),
-  log4erl:debug("New EvictionQueue: ~p", [NextEvictionQueue]),
+  %% log4erl:debug("EvictionSignal: ~p", [EvictionSignal]),
+  %% log4erl:debug("Pushed into Queue: ~p", [TopicPack]),
+  %% log4erl:debug("New EvictionQueue: ~p", [NextEvictionQueue]),
 
 
   %% The data we store in the message queue is constructed from this MessagePack
   %% For each Topic Key we store the message
   MessagePack = {Message, Topics, NextSerial},
-  log4erl:debug("MessagePack: ~p", [MessagePack]),
+  %% log4erl:debug("MessagePack: ~p", [MessagePack]),
   NextMQueueMap = next_per_topic_message_queue(CurrentMQueueMap, EvictionSignal, MessagePack),
 
-  log4erl:debug("NextMQueueMap: ~p", [NextMQueueMap]),
+  %% log4erl:debug("NextMQueueMap: ~p", [NextMQueueMap]),
 
   % Creates a list like [{Topic1, Pid1}, {Topic1, Pid2}, {Topic2, Pid1}].
   TopicPidPairs = lists:flatten(
@@ -372,16 +372,13 @@ ets_keys(Tab, Key, Acc) ->
 -ifdef(TEST).
 -include_lib("kraken_test.hrl").
 
-retroact_simulate_test() ->
+retro_basic_test() ->
   Socket = kraken_client:new_client(),
-  kraken_client:register(Socket),
   Publisher = kraken_client:new_client(),
-  ok = kraken_client:publish(Publisher,
-                             [{[<<"topic">>], <<"m1">>},
-                              {[<<"topic">>], <<"m2">>},
-                              {[<<"topic">>], <<"m3">>}]),
-  ok = kraken_client:subscribe(Socket, [<<"topic">>]),
-  ok = kraken_client:publish(Publisher, [{[<<"topic">>], <<"m4">>},
-                             {[<<"topic">>], <<"m5">>},
-                             {[<<"topic">>], <<"m6">>}]).
+  kraken_client:register(Socket),
+  ok = kraken_client:publish(Publisher, [{[<<"retro-topic1">>, <<"retro-topic1">>], <<"retro">>}]),
+  ?assertMatch([], kraken_client:receive_messages(Publisher)),
+  SubRes = kraken_client:subscribe(Socket, [<<"retro-topic1">>, <<"retro-topic2">>]),
+  log4erl:debug("SubRes: ~p", [SubRes]),
+  kraken_client:assert_receive([{<<"retro-topic1">>,<<"retro">>}, {<<"retro-topic2">>,<<"retro">>}], Socket).
 -endif.

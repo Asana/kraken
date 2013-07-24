@@ -84,32 +84,36 @@ get_horizon() ->
 %% than it already does. Then again we are only running it on a 4 core machine
 %% @spec subscribe(WPid :: pid(), Topics :: [string()]) -> ok
 subscribe(WPid, RequestedTopics) ->
-  log4erl:debug("In router:subscribe, : ~p ~p", [WPid, RequestedTopics]),
+  %% log4erl:debug("In router:subscribe, : ~p ~p", [WPid, RequestedTopics]),
   % TODO: Consider doing this and unsubscribe in parallel to improve performance
   % This would use get_server:multi_call
   HorizonInfo = kraken_waitress:get_horizon(WPid),
   BufferedMessages = router_topics_fold(fun(RPid, ShardTopics, MsgAcc) ->
+          %% log4erl:debug("In router_topics_fold in r:sub : ~p, ~p", [MsgAcc, ShardTopics]),
           kraken_router_shard:subscribe(RPid, WPid, ShardTopics),
+          %% log4erl:debug("Horizon Exists?: ~p", [HorizonInfo]),
           case HorizonInfo of
             none ->
-              ok;
+              MsgAcc;
             {exists, Horizon} ->
               ShardHorizon = dict:fetch(RPid, Horizon),
               Messages = kraken_router_shard:get_buffered_msgs(RPid, ShardHorizon, ShardTopics),
+              %% log4erl:debug("Messages: ~p", [Messages]),
               lists:append(Messages, MsgAcc)
           end
       end, [], RequestedTopics),
-  log4erl:debug("BufferedMessages: ~p", [BufferedMessages]),
+  %% log4erl:debug("BufferedMessages: ~p", [BufferedMessages]),
   Failure = lists:member(failure, BufferedMessages),
   log4erl:debug("Failure: ~p", [Failure]),
   if Failure ->
       horizon_too_old;
     true ->
       lists:foldl(fun(MessagePack, _AccIn) ->
-            log4erl:debug("MessagePack is -- ~p",[MessagePack]),
+            %% log4erl:debug("MessagePack is -- ~p",[MessagePack]),
             {Message, Topics, _Serial} = MessagePack,
             kraken_waitress:enqueue_message(WPid, Topics, Message)
-        end, undefined, BufferedMessages)
+        end, undefined, BufferedMessages),
+      ok
   end.
 
 %% @doc Unsubscribes WPid from a list of the topics they were previously
@@ -265,6 +269,7 @@ start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers})
       num_routers=NumRouters+1,
       routers=array:set(Count-1, NewRouter, Routers)}).
 
+
 router_topics_fold(Fun, Acc, Topics) ->
   dict:fold(Fun, Acc, topics_by_router(Topics)).
 
@@ -284,12 +289,15 @@ router_map(Fun) ->
   State = state(),
   lists:map(Fun, array:to_list(State#state.routers)).
 
+%% Returns a mapping from RPid to topic
+%% {RPid => Topic}
 topics_by_router(Topics) ->
   State = state(),
   lists:foldl(fun(Topic, Dict) ->
         dict:append(router_for_topic(Topic, State), Topic, Dict)
     end, dict:new(), Topics).
 
+%% Returns the RouterShard Pid that is reponsible for this Topic
 router_for_topic(Topic, _State=#state{num_routers=NumRouters, routers=Routers}) ->
   array:get(erlang:phash2(Topic, NumRouters), Routers).
 
