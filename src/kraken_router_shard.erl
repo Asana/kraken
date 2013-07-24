@@ -187,11 +187,11 @@ get_messages_above_limit(Queue, MinSerial, AggList) ->
   case Item of
     empty ->
       AggList;
-    {value, {Message, Serial}} ->
+    {value, MessagePack = {Message, Topics, Serial}} ->
       if (Serial < MinSerial) ->
           AggList;
       true ->
-          get_messages_above_limit(Rest, MinSerial, [Message | AggList])
+          get_messages_above_limit(Rest, MinSerial, [MessagePack | AggList])
       end
   end.
 
@@ -235,10 +235,10 @@ get_clean_per_topic_message_queue(MQueueMap, {dropped, TopicPack}) ->
 
 %% Generate the per_topic_message_queue after the new messagepack is added
 push_mpack_on_per_topic_message_queue(MQueueMap, MessagePack) ->
-  {Message, Topics, Serial} = MessagePack,
+  {_Message, Topics, _Serial} = MessagePack,
   lists:foldl(fun (Topic, AccIn) -> 
-        dict:update(Topic, fun (Q) -> queue:in({Message, Serial}, Q) end,
-                    queue:in({Message, Serial}, queue:new()), AccIn) end,
+        dict:update(Topic, fun (Q) -> queue:in(MessagePack, Q) end,
+                    queue:in(MessagePack, queue:new()), AccIn) end,
              MQueueMap, Topics).
 
 %% Takes in the current MessageQueueMap and returns a new one, updated
