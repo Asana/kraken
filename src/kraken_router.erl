@@ -84,6 +84,7 @@ get_horizon() ->
 %% than it already does
 %% @spec subscribe(WPid :: pid(), Topics :: [string()]) -> ok
 subscribe(WPid, Topics) ->
+  log4erl:debug("In router:subscribe, : ~p ~p", [WPid, Topics]),
   % TODO: Consider doing this and unsubscribe in parallel to improve performance
   % This would use get_server:multi_call
   HorizonInfo = kraken_waitress:get_horizon(WPid),
@@ -97,8 +98,8 @@ subscribe(WPid, Topics) ->
               log4erl:debug("HORIZON EXISTS: ~p", [Horizon]),
               ShardHorizon = dict:fetch(RPid, Horizon),
               Messages = kraken_router_shard:get_buffered_msgs(RPid, ShardHorizon, ShardTopics),
-              log4erl:debug("Messages EXISTS: ~p", [Messages]),
-              log4erl:debug("[Messages | MsgAcc] EXISTS: ~p", [[Messages | MsgAcc]]),
+              log4erl:debug("Messages : ~p", [Messages]),
+              log4erl:debug("[Messages | MsgAcc] : ~p", [[Messages | MsgAcc]]),
               [Messages | MsgAcc]
           end
       end, [], Topics),

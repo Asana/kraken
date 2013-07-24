@@ -162,7 +162,7 @@ handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
             State=#state{eviction_queue=EvictionQueue,
                          per_topic_message_queue=QueueMap}) ->
   QueuePeek = bounded_queue:peek(EvictionQueue),
-  {Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], 0};
+  {Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], infinity};
         true -> QueuePeek end),
   %% Invalid Case
   if (OldestMessageSerial < WaitressShardHorizon) ->
@@ -371,7 +371,7 @@ retroact_simulate_test() ->
   kraken_client:register(Socket),
   Publisher = kraken_client:new_client(),
   ok = kraken_client:publish(Publisher,
-                             [{[<<"topic">>, <<"other">>], <<"m1">>},
+                             [{[<<"topic">>], <<"m1">>},
                               {[<<"topic">>], <<"m2">>},
                               {[<<"topic">>], <<"m3">>}]),
   ok = kraken_client:subscribe(Socket, [<<"topic">>]),
