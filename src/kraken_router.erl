@@ -79,13 +79,37 @@ get_horizon() ->
 %%TODO#Performance: If we moved this blocking call into the waitress it would 
 %% take this bottleneck out of the central router. Right now there is a single process 
 %% that blocks for every single client subscribe and unsubscribe
+%% I'm going to do this next -- I'm extremely unhappy with the current
+%% architecture and it bothers me to make the router block even more
+%% than it already does
 %% @spec subscribe(WPid :: pid(), Topics :: [string()]) -> ok
 subscribe(WPid, Topics) ->
-  router_topics_fold(fun(Router, RouterTopics, _Acc) ->
-        % TODO: Consider doing this and unsubscribe in parallel to improve performance
-        kraken_router_shard:subscribe(Router, WPid, RouterTopics)
-    end, undefined, Topics),
-  ok.
+  % TODO: Consider doing this and unsubscribe in parallel to improve performance
+  % This would use get_server:multi_call
+  HorizonInfo = kraken_waitress:get_horizon(WPid),
+  log4erl:debug("HorizonInfo: ~p", [HorizonInfo]),
+  BufferedMessages = router_topics_fold(fun(RPid, ShardTopics, MsgAcc) ->
+          kraken_router_shard:subscribe(RPid, WPid, ShardTopics),
+          case HorizonInfo of
+            none ->
+              ok;
+            {exists, Horizon} ->
+              log4erl:debug("HORIZON EXISTS: ~p", [Horizon]),
+              ShardHorizon = dict:fetch(RPid, Horizon),
+              Messages = kraken_router_shard:get_buffered_msgs(RPid, ShardHorizon, ShardTopics),
+              log4erl:debug("Messages EXISTS: ~p", [Messages]),
+              log4erl:debug("[Messages | MsgAcc] EXISTS: ~p", [[Messages | MsgAcc]]),
+              [Messages | MsgAcc]
+          end
+      end, [], Topics),
+  log4erl:debug("BufferedMessages: ~p", [BufferedMessages]),
+  Failure = lists:member(failure, BufferedMessages),
+  log4erl:debug("Failure: ~p", [Failure]),
+  if Failure ->
+      horizon_too_old;
+    true ->
+      ok
+  end.
 
 %% @doc Unsubscribes WPid from a list of the topics they were previously
 %% subscribed to. If there is a topic in the list that the caller was not

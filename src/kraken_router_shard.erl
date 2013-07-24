@@ -98,6 +98,9 @@ topics(RPid, WPid) ->
 topic_status(RPid) ->
   gen_server:call(RPid, topic_status).
 
+get_buffered_msgs(RPid, ShardHorizon, ShardTopics) ->
+  gen_server:call(RPid, {get_buffered_msgs, ShardHorizon, ShardTopics}).
+
 %%%-----------------------------------------------------------------
 %%% Callbacks
 %%%-----------------------------------------------------------------
@@ -153,7 +156,39 @@ handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
   TopicStatus = ets:foldl(fun({Topic, _WPid}, Acc) ->
           dict:update_counter(Topic, 1, Acc)
       end, dict:new(), TopicToPids),
-  {reply, TopicStatus, State}.
+  {reply, TopicStatus, State};
+
+handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
+            State=#state{eviction_queue=EvictionQueue,
+                         per_topic_message_queue=QueueMap}) ->
+  QueuePeek = bounded_queue:peek(EvictionQueue),
+  {Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], 0};
+        true -> QueuePeek end),
+  %% Invalid Case
+  if (OldestMessageSerial < WaitressShardHorizon) ->
+      {reply, failure, State};
+    true ->
+      {reply, 
+       lists:foldl(fun (Topic, AccIn) ->
+              SubQueue = dict:fetch(Topic, QueueMap),
+              lists:append(AccIn, get_messages_above_limit(
+                  SubQueue, OldestMessageSerial, []))
+          end , [], Topics), State}
+  end.
+  
+get_messages_above_limit(Queue, MinSerial, AggList) ->
+  {Item, Rest} = queue:out(Queue),
+  case Item of
+    empty ->
+      AggList;
+    {value, {Message, Serial}} ->
+      if (Serial < MinSerial) ->
+          AggList;
+      true ->
+          get_messages_above_limit(Rest, MinSerial, [Message | AggList])
+      end
+  end.
+
 
 %% PERF NOTE: We could consider moving most of the publish logic into the caller so
 %% that it can be distributed across cores, or even nodes. The problem with that
@@ -194,10 +229,10 @@ get_clean_per_topic_message_queue(MQueueMap, {dropped, TopicPack}) ->
 
 %% Generate the per_topic_message_queue after the new messagepack is added
 push_mpack_on_per_topic_message_queue(MQueueMap, MessagePack) ->
-  {Message, Topics, _NextSerial} = MessagePack,
+  {Message, Topics, Serial} = MessagePack,
   lists:foldl(fun (Topic, AccIn) -> 
-        dict:update(Topic, fun (Q) -> queue:in(Message, Q) end,
-                    queue:in(Message, queue:new()), AccIn) end,
+        dict:update(Topic, fun (Q) -> queue:in({Message, Serial}, Q) end,
+                    queue:in({Message, Serial}, queue:new()), AccIn) end,
              MQueueMap, Topics).
 
 %% Takes in the current MessageQueueMap and returns a new one, updated
@@ -333,14 +368,14 @@ ets_keys(Tab, Key, Acc) ->
 
 retroact_simulate_test() ->
   Socket = kraken_client:new_client(),
+  kraken_client:register(Socket),
   Publisher = kraken_client:new_client(),
-  ok = kraken_client:subscribe(Socket, [<<"topic">>]),
   ok = kraken_client:publish(Publisher,
                              [{[<<"topic">>, <<"other">>], <<"m1">>},
                               {[<<"topic">>], <<"m2">>},
-                              {[<<"topic">>], <<"m3">>},
-                              {[<<"topic">>], <<"m4">>},
-                              {[<<"topic">>], <<"m5">>},
-                              {[<<"topic">>], <<"m6">>}
-                             ]).
+                              {[<<"topic">>], <<"m3">>}]),
+  ok = kraken_client:subscribe(Socket, [<<"topic">>]),
+  ok = kraken_client:publish(Publisher, [{[<<"topic">>], <<"m4">>},
+                             {[<<"topic">>], <<"m5">>},
+                             {[<<"topic">>], <<"m6">>}]).
 -endif.
