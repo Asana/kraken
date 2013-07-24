@@ -100,7 +100,7 @@ subscribe(WPid, Topics) ->
               Messages = kraken_router_shard:get_buffered_msgs(RPid, ShardHorizon, ShardTopics),
               log4erl:debug("Messages : ~p", [Messages]),
               log4erl:debug("[Messages | MsgAcc] : ~p", [[Messages | MsgAcc]]),
-              [Messages | MsgAcc]
+              lists:append(Messages, MsgAcc)
           end
       end, [], Topics),
   log4erl:debug("BufferedMessages: ~p", [BufferedMessages]),

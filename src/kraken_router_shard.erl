@@ -162,7 +162,7 @@ handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
             State=#state{eviction_queue=EvictionQueue,
                          per_topic_message_queue=QueueMap}) ->
   QueuePeek = bounded_queue:peek(EvictionQueue),
-  {Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], infinity};
+  {_Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], infinity};
         true -> QueuePeek end),
   %% Invalid Case
   if (OldestMessageSerial < WaitressShardHorizon) ->
@@ -170,10 +170,16 @@ handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
     true ->
       {reply, 
        lists:foldl(fun (Topic, AccIn) ->
-              SubQueue = dict:fetch(Topic, QueueMap),
-              lists:append(AccIn, get_messages_above_limit(
-                  SubQueue, OldestMessageSerial, []))
-          end , [], Topics), State}
+              log4erl:debug("About to Fetch topic queue for topic: ~p" , [Topic]),
+              ContainsTopic = dict:is_key(Topic, QueueMap),
+              if ContainsTopic ->
+                  SubQueue = dict:fetch(Topic, QueueMap),
+                  lists:append(AccIn, get_messages_above_limit(
+                      SubQueue, OldestMessageSerial, []));
+                true ->
+                  AccIn
+              end
+          end , [], ShardTopics), State}
   end.
   
 get_messages_above_limit(Queue, MinSerial, AggList) ->
