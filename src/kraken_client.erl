@@ -181,7 +181,6 @@ new_client() ->
 kraken_client_test_() ->
   {setup,
    fun() ->
-        ok = kraken:stop(),
         ok = kraken:start(),
         % We make the following call to ensure the erlang inet processes are
         % already started so that we do not consider them in our process leak
@@ -195,11 +194,11 @@ kraken_client_test_() ->
     end,
    [{foreach,
      fun new_client/0,
-     [{with, [fun test_retro_basic/1]},
-      {with, [fun test_disconnect/1]},
+     [{with, [fun test_disconnect/1]},
       {with, [fun test_quit/1]},
       {with, [fun test_topic_commands/1]},
-      {with, [fun test_publish_receive_commands/1]}
+      {with, [fun test_publish_receive_commands/1]},
+      {with, [fun test_retro_basic/1]}
      ]}]}.
 
 test_quit(Socket) ->
@@ -241,13 +240,9 @@ test_retro_basic(Publisher) ->
                               {[<<"t1">>, <<"t2">>], <<"msg2">>}]),
   ?assertMatch([], kraken_client:receive_messages(Publisher)),
   SubRes = kraken_client:subscribe(Socket, [<<"t1">>, <<"t2">>, <<"null">>]),
-  %% receive after 5000 -> ok end,
   log4erl:debug("SubRes: ~p", [SubRes]),
-  Msgs = receive_messages(Socket),
-  log4erl:debug("Step 8"),
-  log4erl:debug("RECEIVED:::: ~p", [Msgs]),
-  log4erl:debug("Step 9"),
-  %% kraken_client:assert_receive([{<<"retro-topic1">>,<<"retro">>}, {<<"retro-topic2">>,<<"retro">>}], Socket),
+  kraken_client:assert_receive([{<<"t1">>,<<"msg1">>}, {<<"t2">>,<<"msg2">>},
+                                {<<"t1">>,<<"msg2">>}, {<<"t2">>,<<"msg1">>}], Socket),
   ok.
 
 -endif.
