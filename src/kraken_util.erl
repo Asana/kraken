@@ -27,8 +27,8 @@ time_ago_in_words(NowTime={_, _, _}) ->
   time_delta_in_words(DeltaSeconds).
 
 pluralize(Name, 1) -> lists:flatten(io_lib:format("1 ~s", [Name]));
-pluralize(Name, Count) -> 
-  lists:flatten(io_lib:format("~p ~ses", [Count, Name])).
+pluralize(Name, Count) ->
+  lists:flatten(io_lib:format("~p ~ss", [Count, Name])).
 
 now_to_seconds({Mega, Sec, _}) ->
   (Mega * 1000000) + Sec.

@@ -162,10 +162,14 @@ handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
             State=#state{eviction_queue=EvictionQueue,
                          per_topic_message_queue=QueueMap}) ->
   QueuePeek = bounded_queue:peek(EvictionQueue),
-  {_Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], infinity};
+  {_Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], 0};
         true -> QueuePeek end),
   %% Invalid Case
-  if (OldestMessageSerial < WaitressShardHorizon) ->
+  log4erl:debug("EvictionQueue:: ~p", [EvictionQueue]),
+
+  log4erl:debug("OldestMessageSerial: ~p", [OldestMessageSerial]),
+  log4erl:debug("WaitressShardHorizon: ~p", [WaitressShardHorizon]),
+  if (OldestMessageSerial > WaitressShardHorizon) ->
       {reply, failure, State};
     true ->
       {reply, 
@@ -183,7 +187,8 @@ handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
   end.
   
 get_messages_above_limit(Queue, MinSerial, AggList) ->
-  {Item, Rest} = queue:out(Queue),
+  {Item, Rest} = queue:out_r(Queue),
+  log4erl:debug("GOT FROM QUEUE: ~p", [Item]),
   case Item of
     empty ->
       AggList;
@@ -372,13 +377,4 @@ ets_keys(Tab, Key, Acc) ->
 -ifdef(TEST).
 -include_lib("kraken_test.hrl").
 
-retro_basic_test() ->
-  Socket = kraken_client:new_client(),
-  Publisher = kraken_client:new_client(),
-  kraken_client:register(Socket),
-  ok = kraken_client:publish(Publisher, [{[<<"retro-topic1">>, <<"retro-topic1">>], <<"retro">>}]),
-  ?assertMatch([], kraken_client:receive_messages(Publisher)),
-  SubRes = kraken_client:subscribe(Socket, [<<"retro-topic1">>, <<"retro-topic2">>]),
-  log4erl:debug("SubRes: ~p", [SubRes]),
-  kraken_client:assert_receive([{<<"retro-topic1">>,<<"retro">>}, {<<"retro-topic2">>,<<"retro">>}], Socket).
 -endif.

@@ -24,7 +24,7 @@
      {router_min_fanout_to_warn, 1000},
      {router_min_publish_to_topics_to_warn, 1000},
      {messages_stored_per_router_shard, 5000},
-     {num_router_shards, 4}
+     {num_router_shards, 1}
    ]},
    {applications, [kernel, stdlib, log4erl]}]}.
 

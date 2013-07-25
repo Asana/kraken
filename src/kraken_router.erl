@@ -97,9 +97,15 @@ subscribe(WPid, RequestedTopics) ->
               MsgAcc;
             {exists, Horizon} ->
               ShardHorizon = dict:fetch(RPid, Horizon),
+              %% Messages is either 'failure', or a list of Messages
               Messages = kraken_router_shard:get_buffered_msgs(RPid, ShardHorizon, ShardTopics),
-              %% log4erl:debug("Messages: ~p", [Messages]),
-              lists:append(Messages, MsgAcc)
+              log4erl:debug("Messages: ~p", [Messages]),
+              log4erl:debug("MsgAcc: ~p", [MsgAcc]),
+              if (Messages == failure) ->
+                  [failure | MsgAcc];
+                true ->
+                  lists:append(Messages, MsgAcc)
+              end
           end
       end, [], RequestedTopics),
   %% log4erl:debug("BufferedMessages: ~p", [BufferedMessages]),
