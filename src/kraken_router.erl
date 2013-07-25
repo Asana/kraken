@@ -21,7 +21,7 @@
          code_change/3]).
 %% API
 -export([start_link/2, start_waitress_link/1, subscribe/2, unsubscribe/2, publish/3,
-         topics/1, topic_status/0, status/0, waitress_pids/0]).
+         topics/2, topic_status/0, status/0, waitress_pids/0]).
 
 -compile(export_all).
 %%%-----------------------------------------------------------------
@@ -82,7 +82,7 @@ get_horizon() ->
 %% I'm going to do this next -- I'm extremely unhappy with the current
 %% architecture and it bothers me to make the router block even more
 %% than it already does. Then again we are only running it on a 4 core machine
-%% @spec subscribe(WPid :: pid(), Topics :: [string()]) -> ok
+%% @spec subscribe(WPid :: pid(), Topics :: [string()]) -> (ok | horizon_too_old)
 subscribe(WPid, RequestedTopics) ->
   %% log4erl:debug("In router:subscribe, : ~p ~p", [WPid, RequestedTopics]),
   % TODO: Consider doing this and unsubscribe in parallel to improve performance
