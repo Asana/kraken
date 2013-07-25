@@ -111,6 +111,8 @@ subscribe(WPid, RequestedTopics) ->
   %% log4erl:debug("BufferedMessages: ~p", [BufferedMessages]),
   Failure = lists:member(failure, BufferedMessages),
   log4erl:debug("Failure: ~p", [Failure]),
+  %% Clear the horizon because after the first subscribe its no longer relevant
+  kraken_waitress:clear_horizon(WPid),
   if Failure ->
       horizon_too_old;
     true ->

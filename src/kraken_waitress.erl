@@ -10,7 +10,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 %% API
--export([start_link/1, get_horizon/1, set_horizon/2, enqueue_message/3, 
+-export([start_link/1, get_horizon/1, set_horizon/2, clear_horizon/1, enqueue_message/3, 
          receive_messages/1, stop/1, status/1]).
 
 %%%-----------------------------------------------------------------
@@ -54,6 +54,9 @@ set_horizon(Pid, Horizon) ->
   io:format("In waitress:set_horizon\n"),
   io:format("Horizon: ~p \n", [Horizon]),
   gen_server:call(Pid, {set_horizon, Horizon}).
+
+clear_horizon(Pid) ->
+  gen_server:call(Pid, {set_horizon, undefined}).
 
 get_horizon(WPid) ->
   gen_server:call(WPid, get_horizon).
