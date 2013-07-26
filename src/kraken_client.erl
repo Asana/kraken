@@ -8,10 +8,8 @@
 %%%-----------------------------------------------------------------
 
 %% API
--export([connect/2, register/1, subscribe/2, unsubscribe/2, disconnect/1, publish/2,
-         receive_messages/1, quit/1]).
-
--compile(export_all).
+-export([connect/2, new_client/0, register/1, subscribe/2, unsubscribe/2, disconnect/1, publish/2,
+         assert_receive/2, receive_messages/1, quit/1]).
 
 %%%-----------------------------------------------------------------
 %%% API
@@ -220,13 +218,10 @@ test_publish_receive_commands(Socket1) ->
                               {[<<"topic3">>], <<"m2">>}]),
   assert_receive([{<<"topic1">>,<<"m1">>}, {<<"topic2">>,<<"m1">>}], Socket2).
 
-test_retro_basic() ->
-  test_retro_basic(kraken_client:new_client()).
-
-test_retro_basic(Publisher) ->
+test_retro_basic(PublisherSock) ->
   Socket = kraken_client:new_client(),
   %% Buffer some messages so we dont just fail automatically
-  ok = kraken_client:publish(Publisher, 
+  ok = kraken_client:publish(PublisherSock, 
                              [{[<<"other">>], <<"dummy1">>},
                               {[<<"other">>], <<"dummy2">>},
                               {[<<"other">>], <<"dummy3">>},
@@ -235,12 +230,11 @@ test_retro_basic(Publisher) ->
                               {[<<"other">>], <<"dummy6">>},
                               {[<<"other">>], <<"dummy7">>}]),
   kraken_client:register(Socket),
-  ok = kraken_client:publish(Publisher, 
+  ok = kraken_client:publish(PublisherSock, 
                              [{[<<"t1">>, <<"t2">>, <<"other">>], <<"msg1">>},
                               {[<<"t1">>, <<"t2">>], <<"msg2">>}]),
-  ?assertMatch([], kraken_client:receive_messages(Publisher)),
+  ?assertMatch([], kraken_client:receive_messages(PublisherSock)),
   SubRes = kraken_client:subscribe(Socket, [<<"t1">>, <<"t2">>, <<"null">>]),
-  log4erl:debug("SubRes: ~p", [SubRes]),
   kraken_client:assert_receive([{<<"t1">>,<<"msg1">>}, {<<"t2">>,<<"msg2">>},
                                 {<<"t1">>,<<"msg2">>}, {<<"t2">>,<<"msg1">>}], Socket),
   ok.

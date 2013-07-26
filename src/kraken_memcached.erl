@@ -248,10 +248,8 @@ handle_command(?QUIT_COMMAND, empty, _Socket, State) ->
   {stop, State};
 
 handle_command(?REGISTER_COMMAND, _Data, Socket, State=#state{wpid=WPid}) ->
-  log4erl:debug("In Memcached:handle_command (register...)"),
+  log4erl:debug("Registering Client: ~p", [WPid]),
   Horizon = kraken_router:get_horizon(),
-  %% Put Horizon into Waitress: WPid
-  log4erl:debug("About to send Horizon to the Waitress"),
   kraken_waitress:set_horizon(WPid, Horizon),
   gen_tcp:send(Socket, ?STORED_RESP),
   {ok, State};

@@ -45,7 +45,6 @@ start_link() ->
 %%
 %% @spec register(RPid :: pid(), WPid :: pid()) -> int()
 get_serial(RPid) -> %%Not using WPid atm
-  log4erl:debug("In router_shard:register"),
   gen_server:call(RPid, get_serial).
 
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
@@ -107,7 +106,6 @@ get_buffered_msgs(RPid, ShardHorizon, ShardTopics) ->
 
 init([]) ->
   {ok, MessagesStoredPerRouterShard} = application:get_env(messages_stored_per_router_shard),
-  log4erl:debug("MESSAGE LIMIT: =============> ~p", [MessagesStoredPerRouterShard]),
   {ok, #state{
       pid_to_topics = ets:new(list_to_atom(?TABLE_PREFIX ++ "pid_to_topics"), [bag]),
       topic_to_pids = ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag]),
@@ -125,7 +123,6 @@ init([]) ->
 handle_call(get_serial, _From,
             State=#state{serial_number=SerialNumber}) ->
   NextSerial = SerialNumber + 1,
-  io:format("shard:handle_call:register.NextSerial: ~p\n", [NextSerial]),
   {reply, NextSerial, State#state{serial_number=NextSerial}};
 
 handle_call({subscribe, WPid, Topics}, _From,
@@ -165,10 +162,6 @@ handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
   {_Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], 0};
         true -> QueuePeek end),
   %% Invalid Case
-  log4erl:debug("EvictionQueue:: ~p", [EvictionQueue]),
-
-  log4erl:debug("OldestMessageSerial: ~p", [OldestMessageSerial]),
-  log4erl:debug("WaitressShardHorizon: ~p", [WaitressShardHorizon]),
   if (OldestMessageSerial > WaitressShardHorizon) ->
       {reply, failure, State};
     true ->
@@ -185,17 +178,16 @@ handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
               end
           end , [], ShardTopics), State}
   end.
-  
+
 get_messages_above_limit(Queue, MinSerial, AggList) ->
   {Item, Rest} = queue:out_r(Queue),
-  log4erl:debug("GOT FROM QUEUE: ~p", [Item]),
   case Item of
     empty ->
       AggList;
     {value, MessagePack = {_Message, _Topics, Serial}} ->
       if (Serial < MinSerial) ->
           AggList;
-      true ->
+        true ->
           get_messages_above_limit(Rest, MinSerial, [MessagePack | AggList])
       end
   end.
@@ -218,22 +210,15 @@ get_messages_above_limit(Queue, MinSerial, AggList) ->
 get_clean_per_topic_message_queue(MQueueMap, normal) ->
   MQueueMap;
 get_clean_per_topic_message_queue(MQueueMap, {dropped, TopicPack}) ->
-  %% log4erl:debug("Dropping STUFF"),
   %% TODO: assert that the queue isnt already empty
   {DroppedTopics, _Serial} = TopicPack,
   lists:foldl(fun (Topic, AccIn) -> 
-        %% log4erl:debug("DICT IS: ~p", [AccIn]),
-        %% log4erl:debug("TOPIC IS: ~p", [Topic]),
-        %% log4erl:debug("QUEUE IS: ~p", [dict:fetch(Topic, AccIn)]),
         Map = dict:update(Topic, fun (Q) -> queue:drop(Q) end, AccIn),
-        %% log4erl:debug("NEW DICT IS: ~p", [Map]),
         SubQueue = dict:fetch(Topic, Map),
         IsEmpty = queue:is_empty(SubQueue),
         if IsEmpty ->
-            %% log4erl:debug("SUBQUEUE WAS EMPTY"),
             dict:erase(Topic, Map);
           true ->
-            %% log4erl:debug("SUBQUEUE WAS NOT empty Keeping it"),
             Map
         end
     end, MQueueMap, DroppedTopics).
@@ -244,7 +229,7 @@ push_mpack_on_per_topic_message_queue(MQueueMap, MessagePack) ->
   lists:foldl(fun (Topic, AccIn) -> 
         dict:update(Topic, fun (Q) -> queue:in(MessagePack, Q) end,
                     queue:in(MessagePack, queue:new()), AccIn) end,
-             MQueueMap, Topics).
+              MQueueMap, Topics).
 
 %% Takes in the current MessageQueueMap and returns a new one, updated
 %% to have evicted and then pushed items

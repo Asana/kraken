@@ -21,9 +21,8 @@
          code_change/3]).
 %% API
 -export([start_link/2, start_waitress_link/1, subscribe/2, unsubscribe/2, publish/3,
-         topics/2, topic_status/0, status/0, waitress_pids/0]).
+         topics/1, topic_status/0, status/0, waitress_pids/0, get_horizon/0]).
 
--compile(export_all).
 %%%-----------------------------------------------------------------
 %%% Definitions
 %%%-----------------------------------------------------------------
@@ -62,7 +61,6 @@ start_waitress_link(Name) ->
 %% returns a dict that maps router_shard processes to serial numbers
 %% @spec get_horizon(WPid :: pid(), Topics :: [string()]) -> {pids: serials}
 get_horizon() ->
-  log4erl:debug("IN KRAKEN ROUTER REGISTER !!!"),
   RPidSerialPairs = router_map(fun(RPid) ->
           {RPid, kraken_router_shard:get_serial(RPid)}
       end),
@@ -70,7 +68,6 @@ get_horizon() ->
           {RPid, Serial} = Pair,
           dict:store(RPid, Serial, Dict) end,
                         dict:new(), RPidSerialPairs),
-  io:format("Horizon: ~p \n", [Horizon]),
   Horizon.
 
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
@@ -78,10 +75,7 @@ get_horizon() ->
 %% Subscribers will not receive their own messages.
 %%TODO#Performance: If we moved this blocking call into the waitress it would 
 %% take this bottleneck out of the central router. Right now there is a single process 
-%% that blocks for every single client subscribe and unsubscribe
-%% I'm going to do this next -- I'm extremely unhappy with the current
-%% architecture and it bothers me to make the router block even more
-%% than it already does. Then again we are only running it on a 4 core machine
+%% that blocks for every single client subscribe and unsubscribe.
 %% @spec subscribe(WPid :: pid(), Topics :: [string()]) -> (ok | horizon_too_old)
 subscribe(WPid, RequestedTopics) ->
   %% log4erl:debug("In router:subscribe, : ~p ~p", [WPid, RequestedTopics]),
@@ -89,9 +83,7 @@ subscribe(WPid, RequestedTopics) ->
   % This would use get_server:multi_call
   HorizonInfo = kraken_waitress:get_horizon(WPid),
   BufferedMessages = router_topics_fold(fun(RPid, ShardTopics, MsgAcc) ->
-          %% log4erl:debug("In router_topics_fold in r:sub : ~p, ~p", [MsgAcc, ShardTopics]),
           kraken_router_shard:subscribe(RPid, WPid, ShardTopics),
-          %% log4erl:debug("Horizon Exists?: ~p", [HorizonInfo]),
           case HorizonInfo of
             none ->
               MsgAcc;
@@ -99,8 +91,6 @@ subscribe(WPid, RequestedTopics) ->
               ShardHorizon = dict:fetch(RPid, Horizon),
               %% Messages is either 'failure', or a list of Messages
               Messages = kraken_router_shard:get_buffered_msgs(RPid, ShardHorizon, ShardTopics),
-              log4erl:debug("Messages: ~p", [Messages]),
-              log4erl:debug("MsgAcc: ~p", [MsgAcc]),
               if (Messages == failure) ->
                   [failure | MsgAcc];
                 true ->
@@ -108,9 +98,7 @@ subscribe(WPid, RequestedTopics) ->
               end
           end
       end, [], RequestedTopics),
-  %% log4erl:debug("BufferedMessages: ~p", [BufferedMessages]),
   Failure = lists:member(failure, BufferedMessages),
-  log4erl:debug("Failure: ~p", [Failure]),
   %% Clear the horizon because after the first subscribe its no longer relevant
   kraken_waitress:clear_horizon(WPid),
   if Failure ->

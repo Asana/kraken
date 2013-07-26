@@ -51,8 +51,6 @@ receive_messages(Pid) ->
   gen_server:call(Pid, receive_messages).
 
 set_horizon(Pid, Horizon) ->
-  io:format("In waitress:set_horizon\n"),
-  io:format("Horizon: ~p \n", [Horizon]),
   gen_server:call(Pid, {set_horizon, Horizon}).
 
 clear_horizon(Pid) ->
@@ -62,7 +60,6 @@ get_horizon(WPid) ->
   gen_server:call(WPid, get_horizon).
 
 enqueue_message(Pid, Topics, Message) ->
-  io:format("Enqueueing Message: ~p, ~p, ~p\n", [Message, Pid, Topics]),
   gen_server:cast(Pid, {enqueue_message, Topics, Message}).
 
 stop(Pid) ->
@@ -102,6 +99,7 @@ handle_call(receive_messages, _From, State=#state{queue=Queue}) ->
    State#state{queue=[], last_receive_messages_time=now()}};
 
 handle_call(get_horizon, _From, State=#state{horizon=Horizon}) ->
+  %% earlier registrations get priority
   if (Horizon == undefined) ->
       {reply, none, State};
     true ->
@@ -109,9 +107,11 @@ handle_call(get_horizon, _From, State=#state{horizon=Horizon}) ->
   end;
 
 handle_call({set_horizon, NewHorizon}, _From, State=#state{horizon=OldHorizon}) ->
-  io:format("OLD HORIZON: ~p \n", [OldHorizon]),
-  io:format("NEW HORIZON: ~p \n", [NewHorizon]),
-  {reply, ok, State#state{horizon=NewHorizon}}.
+  if OldHorizon =:= undefined ->
+      {reply, ok, State#state{horizon=NewHorizon}};
+    true ->
+      {reply, ok, State#state{horizon=OldHorizon}}
+  end.
 
 handle_cast({enqueue_message, Topics, Message},
             State=#state{
