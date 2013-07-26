@@ -125,11 +125,8 @@ There are two ways of scaling Kraken beyond a single machine:
 ### Authors and Contributors
 
 Kraken was developed at [Asana](http://www.asana.com/jobs).
-
 The original version was written by Kris Rasmussen ([@krisr](https://github.com/krisr)) in 2010.
-
 It was rewritten to be retroactive by Samvit Ramadurgam ([@samvit](https://github.com/samvit)) in 2013.
-
 The Kraken mascot was designed by Stephanie Hornung.
 
 ### Support or Contact
