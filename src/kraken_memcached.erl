@@ -247,8 +247,10 @@ handle_and_log_command(Command, Data, Socket, State) ->
 handle_command(?QUIT_COMMAND, empty, _Socket, State) ->
   {stop, State};
 
-handle_command(?REGISTER_COMMAND, Data, Socket, State=#state{wpid=WPid}) ->
-  kraken_router:register(WPid),
+handle_command(?REGISTER_COMMAND, _Data, Socket, State=#state{wpid=WPid}) ->
+  log4erl:debug("Registering Client: ~p", [WPid]),
+  Horizon = kraken_router:get_horizon(),
+  kraken_waitress:set_horizon(WPid, Horizon),
   gen_tcp:send(Socket, ?STORED_RESP),
   {ok, State};
 

@@ -1,5 +1,3 @@
-%% @doc Generic queue
-
 -module(kraken_waitress).
 
 -behavior(gen_server).
@@ -12,7 +10,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 %% API
--export([start_link/1, enqueue_message/3, receive_messages/1, stop/1, status/1]).
+-export([start_link/1, get_horizon/1, set_horizon/2, clear_horizon/1, enqueue_message/3, 
+         receive_messages/1, stop/1, status/1]).
 
 %%%-----------------------------------------------------------------
 %%% Definitions
@@ -31,7 +30,11 @@
     start_time,
     % The time of the last request to receive messages or the start time if
     % no requests have been made.
-    last_receive_messages_time
+    last_receive_messages_time,
+    %% Contains the serial number the router shards had at the time
+    %% the client did the Register operation
+    %% {RShardPid => int()}
+    horizon=undefined
     }).
 
 %%%-----------------------------------------------------------------
@@ -46,6 +49,15 @@ status(Pid) ->
 
 receive_messages(Pid) ->
   gen_server:call(Pid, receive_messages).
+
+set_horizon(Pid, Horizon) ->
+  gen_server:call(Pid, {set_horizon, Horizon}).
+
+clear_horizon(Pid) ->
+  gen_server:call(Pid, {set_horizon, undefined}).
+
+get_horizon(WPid) ->
+  gen_server:call(WPid, get_horizon).
 
 enqueue_message(Pid, Topics, Message) ->
   gen_server:cast(Pid, {enqueue_message, Topics, Message}).
@@ -84,7 +96,22 @@ handle_call(status, _From,
 
 handle_call(receive_messages, _From, State=#state{queue=Queue}) ->
   {reply, lists:reverse(Queue),
-   State#state{queue=[], last_receive_messages_time=now()}}.
+   State#state{queue=[], last_receive_messages_time=now()}};
+
+handle_call(get_horizon, _From, State=#state{horizon=Horizon}) ->
+  %% earlier registrations get priority
+  if (Horizon == undefined) ->
+      {reply, none, State};
+    true ->
+      {reply, {exists, Horizon}, State}
+  end;
+
+handle_call({set_horizon, NewHorizon}, _From, State=#state{horizon=OldHorizon}) ->
+  if OldHorizon =:= undefined ->
+      {reply, ok, State#state{horizon=NewHorizon}};
+    true ->
+      {reply, ok, State#state{horizon=OldHorizon}}
+  end.
 
 handle_cast({enqueue_message, Topics, Message},
             State=#state{

@@ -16,6 +16,7 @@
 -export([start_link/0, subscribe/3, unsubscribe/3, publish/4,
          topics/2, topic_status/1, waitress_pids/1]).
 
+-compile(export_all).
 %%%-----------------------------------------------------------------
 %%% Definitions
 %%%-----------------------------------------------------------------
@@ -25,9 +26,11 @@
 
 -record(state, {
     % Total count of topics in the system
-    topic_count=0,
     pid_to_topics,
-    topic_to_pids
+    topic_to_pids,
+    serial_number,
+    eviction_queue,
+    per_topic_message_queue
     }).
 
 %%%-----------------------------------------------------------------
@@ -36,6 +39,13 @@
 
 start_link() ->
   gen_server:start_link(?MODULE, [], []).
+
+%% @doc Gets and returns the serial from the Router Shard with 
+%% Pid = RPid
+%%
+%% @spec register(RPid :: pid(), WPid :: pid()) -> int()
+get_serial(RPid) -> %%Not using WPid atm
+  gen_server:call(RPid, get_serial).
 
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
@@ -87,16 +97,33 @@ topics(RPid, WPid) ->
 topic_status(RPid) ->
   gen_server:call(RPid, topic_status).
 
+get_buffered_msgs(RPid, ShardHorizon, ShardTopics) ->
+  gen_server:call(RPid, {get_buffered_msgs, ShardHorizon, ShardTopics}).
+
 %%%-----------------------------------------------------------------
 %%% Callbacks
 %%%-----------------------------------------------------------------
 
 init([]) ->
+  {ok, MessagesStoredPerRouterShard} = application:get_env(messages_stored_per_router_shard),
   {ok, #state{
-      pid_to_topics=
-      ets:new(list_to_atom(?TABLE_PREFIX ++ "pid_to_topics"), [bag]),
-      topic_to_pids=
-      ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag])}}.
+      pid_to_topics = ets:new(list_to_atom(?TABLE_PREFIX ++ "pid_to_topics"), [bag]),
+      topic_to_pids = ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag]),
+      serial_number = 0,
+      %% Bounded queue for keeping track of what we stick into the per_topic_message_queue
+      %% This is used for bookeeping for evicting things from the per_topic_message_queue
+      %% [{Topics[], Serial#}, ...]
+      eviction_queue = bounded_queue:new(MessagesStoredPerRouterShard),
+      %% Keeps track of the recent messages for a given topic
+      %% {Topic => Queue()}
+      per_topic_message_queue = dict:new()
+      }}.
+
+%% @doc Incs and returns the current Serial
+handle_call(get_serial, _From,
+            State=#state{serial_number=SerialNumber}) ->
+  NextSerial = SerialNumber + 1,
+  {reply, NextSerial, State#state{serial_number=NextSerial}};
 
 handle_call({subscribe, WPid, Topics}, _From,
             State=#state{pid_to_topics=PidToTopics,
@@ -126,20 +153,118 @@ handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
   TopicStatus = ets:foldl(fun({Topic, _WPid}, Acc) ->
           dict:update_counter(Topic, 1, Acc)
       end, dict:new(), TopicToPids),
-  {reply, TopicStatus, State}.
+  {reply, TopicStatus, State};
+
+handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
+            State=#state{eviction_queue=EvictionQueue,
+                         per_topic_message_queue=QueueMap}) ->
+  QueuePeek = bounded_queue:peek(EvictionQueue),
+  {_Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], 0};
+        true -> QueuePeek end),
+  %% Invalid Case
+  if (OldestMessageSerial > WaitressShardHorizon) ->
+      {reply, failure, State};
+    true ->
+      {reply, 
+       lists:foldl(fun (Topic, AccIn) ->
+              %% log4erl:debug("About to Fetch topic queue for topic: ~p" , [Topic]),
+              ContainsTopic = dict:is_key(Topic, QueueMap),
+              if ContainsTopic ->
+                  SubQueue = dict:fetch(Topic, QueueMap),
+                  lists:append(AccIn, get_messages_above_limit(
+                      SubQueue, OldestMessageSerial, []));
+                true ->
+                  AccIn
+              end
+          end , [], ShardTopics), State}
+  end.
+
+get_messages_above_limit(Queue, MinSerial, AggList) ->
+  {Item, Rest} = queue:out_r(Queue),
+  case Item of
+    empty ->
+      AggList;
+    {value, MessagePack = {_Message, _Topics, Serial}} ->
+      if (Serial < MinSerial) ->
+          AggList;
+        true ->
+          get_messages_above_limit(Rest, MinSerial, [MessagePack | AggList])
+      end
+  end.
+
 
 %% PERF NOTE: We could consider moving most of the publish logic into the caller so
 %% that it can be distributed across cores, or even nodes. The problem with that
 %% approach is that it may be expensive to return large lists of subscribers
 %% to the caller so we leave all of the logic in the router for now. Routers are
 %% already sharded so this should leverage multiple cores regardless.
+
+%% Things we do here:
+%% inc the serial
+%% take the message and push the messagepack into the EvictionQueue
+%% if something was dropped, nextMapg = new, else nextMap = current
+%% enqueue messages normally
+
+%% Generates the per_topic_message_queue after the dirty messages are evicted
+%% Erases KV Pairs if the value-queue is emptied
+get_clean_per_topic_message_queue(MQueueMap, normal) ->
+  MQueueMap;
+get_clean_per_topic_message_queue(MQueueMap, {dropped, TopicPack}) ->
+  %% TODO: assert that the queue isnt already empty
+  {DroppedTopics, _Serial} = TopicPack,
+  lists:foldl(fun (Topic, AccIn) -> 
+        Map = dict:update(Topic, fun (Q) -> queue:drop(Q) end, AccIn),
+        SubQueue = dict:fetch(Topic, Map),
+        IsEmpty = queue:is_empty(SubQueue),
+        if IsEmpty ->
+            dict:erase(Topic, Map);
+          true ->
+            Map
+        end
+    end, MQueueMap, DroppedTopics).
+
+%% Generate the per_topic_message_queue after the new messagepack is added
+push_mpack_on_per_topic_message_queue(MQueueMap, MessagePack) ->
+  {_Message, Topics, _Serial} = MessagePack,
+  lists:foldl(fun (Topic, AccIn) -> 
+        dict:update(Topic, fun (Q) -> queue:in(MessagePack, Q) end,
+                    queue:in(MessagePack, queue:new()), AccIn) end,
+              MQueueMap, Topics).
+
+%% Takes in the current MessageQueueMap and returns a new one, updated
+%% to have evicted and then pushed items
+next_per_topic_message_queue(CurrentMQueueMap, EvictionSignal, MessagePack) ->
+  CleanedMQueueMap = get_clean_per_topic_message_queue(CurrentMQueueMap, EvictionSignal),
+  push_mpack_on_per_topic_message_queue(CleanedMQueueMap, MessagePack).
+
 handle_cast({publish, PublisherWPid, Topics, Message},
-            State=#state{topic_to_pids=TopicToPids}) ->
+            State=#state{topic_to_pids=TopicToPids, 
+                         eviction_queue=CurrentEvictionQueue,
+                         serial_number=CurrentSerialNumber,
+                         per_topic_message_queue=CurrentMQueueMap}) ->
+  %% Compute the Next Serial Number
+  NextSerial = CurrentSerialNumber + 1,
+  %% The minimum information to know how to: rm things from the message queue
+  %% and to know if the client serial is too old to retroact properly
+  TopicPack = {Topics, NextSerial},
+  {EvictionSignal, NextEvictionQueue} = bounded_queue:push(TopicPack, CurrentEvictionQueue),
+  %% log4erl:debug("EvictionSignal: ~p", [EvictionSignal]),
+  %% log4erl:debug("Pushed into Queue: ~p", [TopicPack]),
+  %% log4erl:debug("New EvictionQueue: ~p", [NextEvictionQueue]),
+
+
+  %% The data we store in the message queue is constructed from this MessagePack
+  %% For each Topic Key we store the message
+  MessagePack = {Message, Topics, NextSerial},
+  %% log4erl:debug("MessagePack: ~p", [MessagePack]),
+  NextMQueueMap = next_per_topic_message_queue(CurrentMQueueMap, EvictionSignal, MessagePack),
+
+  %% log4erl:debug("NextMQueueMap: ~p", [NextMQueueMap]),
+
   % Creates a list like [{Topic1, Pid1}, {Topic1, Pid2}, {Topic2, Pid1}].
   TopicPidPairs = lists:flatten(
       lists:map(fun(Topic) ->
-            ets:lookup(TopicToPids, Topic)
-        end, Topics)),
+            ets:lookup(TopicToPids, Topic) end, Topics)),
 
   % TODO:
   % All of this work we do to ensure we only enqueue a single message per subscriber
@@ -176,11 +301,14 @@ handle_cast({publish, PublisherWPid, Topics, Message},
       end;
     undefined -> ok
   end,
-  {noreply, State};
+  {noreply, State#state{
+      serial_number=NextSerial, 
+      eviction_queue=NextEvictionQueue,
+      per_topic_message_queue=NextMQueueMap}};
 
 % Cast is ok for register because it's ok if we are not notified immediatly
 % when a WPid process dies.
-handle_cast({register, WPid}, State) ->
+handle_cast({register_waitress, WPid}, State) ->
   erlang:monitor(process, WPid),
   {noreply, State}.
 
@@ -225,3 +353,13 @@ ets_keys(_Tab, '$end_of_table', Acc) ->
 ets_keys(Tab, Key, Acc) ->
   Next = ets:next(Tab, Key),
   ets_keys(Tab, Next, [Key|Acc]).
+
+%%%-----------------------------------------------------------------
+%%% Tests
+%%%-----------------------------------------------------------------
+
+-include_lib("eunit/include/eunit.hrl").
+-ifdef(TEST).
+-include_lib("kraken_test.hrl").
+
+-endif.

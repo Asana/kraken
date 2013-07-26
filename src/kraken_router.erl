@@ -21,9 +21,8 @@
          code_change/3]).
 %% API
 -export([start_link/2, start_waitress_link/1, subscribe/2, unsubscribe/2, publish/3,
-         topics/1, topic_status/0, status/0, waitress_pids/0]).
+         topics/1, topic_status/0, status/0, waitress_pids/0, get_horizon/0]).
 
--compile(export_all).
 %%%-----------------------------------------------------------------
 %%% Definitions
 %%%-----------------------------------------------------------------
@@ -53,33 +52,65 @@ start_waitress_link(Name) ->
   % them ourself to be more OTP compliant.
   {ok, WPid} = kraken_waitress:start_link(Name),
   router_map(fun(Router) ->
-        gen_server:cast(Router, {register, WPid})
+        gen_server:cast(Router, {register_waitress, WPid})
     end),
   {ok, WPid}.
 
-%% @doc registers WPid so the retroction has a place to start from.
-%% The serial_number from each Router Shard gets stored in the waitresses horizon
-%%
-%% @spec register(WPid :: pid(), Topics :: [string()]) -> ok
-register(WPid) ->
-  %% router_topics_fold(fun(Router, RouterTopics, _Acc) ->
-  %%   % TODO: Consider doing this and unregister in parallel to improve performance
-  %%   kraken_router_shard:register(Router, WPid, RouterTopics)
-  %% end, undefined, Topics),
-  log4erl:debug("IN KRAKEN ROUTER REGISTER !!!!"),
-  ok.
+%% @doc Returns the current Horizon
+%% Gets the current serial from each router_shard, and then
+%% returns a dict that maps router_shard processes to serial numbers
+%% @spec get_horizon(WPid :: pid(), Topics :: [string()]) -> {pids: serials}
+get_horizon() ->
+  RPidSerialPairs = router_map(fun(RPid) ->
+          {RPid, kraken_router_shard:get_serial(RPid)}
+      end),
+  Horizon = lists:foldl(fun(Pair, Dict) ->
+          {RPid, Serial} = Pair,
+          dict:store(RPid, Serial, Dict) end,
+                        dict:new(), RPidSerialPairs),
+  Horizon.
 
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
 %% Subscribers will not receive their own messages.
-%%
-%% @spec subscribe(WPid :: pid(), Topics :: [string()]) -> ok
-subscribe(WPid, Topics) ->
-  router_topics_fold(fun(Router, RouterTopics, _Acc) ->
-        % TODO: Consider doing this and unsubscribe in parallel to improve performance
-        kraken_router_shard:subscribe(Router, WPid, RouterTopics)
-    end, undefined, Topics),
-  ok.
+%%TODO#Performance: If we moved this blocking call into the waitress it would 
+%% take this bottleneck out of the central router. Right now there is a single process 
+%% that blocks for every single client subscribe and unsubscribe.
+%% @spec subscribe(WPid :: pid(), Topics :: [string()]) -> (ok | horizon_too_old)
+subscribe(WPid, RequestedTopics) ->
+  %% log4erl:debug("In router:subscribe, : ~p ~p", [WPid, RequestedTopics]),
+  % TODO: Consider doing this and unsubscribe in parallel to improve performance
+  % This would use get_server:multi_call
+  HorizonInfo = kraken_waitress:get_horizon(WPid),
+  BufferedMessages = router_topics_fold(fun(RPid, ShardTopics, MsgAcc) ->
+          kraken_router_shard:subscribe(RPid, WPid, ShardTopics),
+          case HorizonInfo of
+            none ->
+              MsgAcc;
+            {exists, Horizon} ->
+              ShardHorizon = dict:fetch(RPid, Horizon),
+              %% Messages is either 'failure', or a list of Messages
+              Messages = kraken_router_shard:get_buffered_msgs(RPid, ShardHorizon, ShardTopics),
+              if (Messages == failure) ->
+                  [failure | MsgAcc];
+                true ->
+                  lists:append(Messages, MsgAcc)
+              end
+          end
+      end, [], RequestedTopics),
+  Failure = lists:member(failure, BufferedMessages),
+  %% Clear the horizon because after the first subscribe its no longer relevant
+  kraken_waitress:clear_horizon(WPid),
+  if Failure ->
+      horizon_too_old;
+    true ->
+      lists:foldl(fun(MessagePack, _AccIn) ->
+            %% log4erl:debug("MessagePack is -- ~p",[MessagePack]),
+            {Message, Topics, _Serial} = MessagePack,
+            kraken_waitress:enqueue_message(WPid, Topics, Message)
+        end, undefined, BufferedMessages),
+      ok
+  end.
 
 %% @doc Unsubscribes WPid from a list of the topics they were previously
 %% subscribed to. If there is a topic in the list that the caller was not
@@ -184,9 +215,9 @@ handle_call(state, _From, State) ->
 
 % Cast is ok for register because it's ok if we are not notified immediatly
 % when a WPid process dies.
-handle_cast({register, WPid}, State=#state{routers=Routers}) ->
+handle_cast({register_waitress, WPid}, State=#state{routers=Routers}) ->
   array:map(fun(Router) ->
-        gen_server:cast(Router, {register, WPid})
+        gen_server:cast(Router, {register_waitress, WPid})
     end, Routers),
   {noreply, State}.
 
@@ -234,6 +265,7 @@ start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers})
       num_routers=NumRouters+1,
       routers=array:set(Count-1, NewRouter, Routers)}).
 
+
 router_topics_fold(Fun, Acc, Topics) ->
   dict:fold(Fun, Acc, topics_by_router(Topics)).
 
@@ -253,12 +285,15 @@ router_map(Fun) ->
   State = state(),
   lists:map(Fun, array:to_list(State#state.routers)).
 
+%% Returns a mapping from RPid to topic
+%% {RPid => Topic}
 topics_by_router(Topics) ->
   State = state(),
   lists:foldl(fun(Topic, Dict) ->
         dict:append(router_for_topic(Topic, State), Topic, Dict)
     end, dict:new(), Topics).
 
+%% Returns the RouterShard Pid that is reponsible for this Topic
 router_for_topic(Topic, _State=#state{num_routers=NumRouters, routers=Routers}) ->
   array:get(erlang:phash2(Topic, NumRouters), Routers).
 

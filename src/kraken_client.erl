@@ -8,10 +8,8 @@
 %%%-----------------------------------------------------------------
 
 %% API
--export([connect/2, register/1, subscribe/2, unsubscribe/2, disconnect/1, publish/2,
-         receive_messages/1, quit/1]).
-
--compile(export_all).
+-export([connect/2, new_client/0, register/1, subscribe/2, unsubscribe/2, disconnect/1, publish/2,
+         assert_receive/2, receive_messages/1, quit/1]).
 
 %%%-----------------------------------------------------------------
 %%% API
@@ -36,8 +34,7 @@ unsubscribe(Socket, Topics) ->
   topic_command(Socket, <<"unsubscribe">>, Topics).
 
 publish(Socket, MessageEntries) ->
-  {DataBytes, DataBlock} =
-                           kraken_memcached:serialize_message_entries(MessageEntries),
+  {DataBytes, DataBlock} = kraken_memcached:serialize_message_entries(MessageEntries),
   set_command(Socket, <<"publish">>, DataBytes, DataBlock).
 
 receive_messages(Socket) ->
@@ -198,7 +195,9 @@ kraken_client_test_() ->
      [{with, [fun test_disconnect/1]},
       {with, [fun test_quit/1]},
       {with, [fun test_topic_commands/1]},
-      {with, [fun test_publish_receive_commands/1]}]}]}.
+      {with, [fun test_publish_receive_commands/1]},
+      {with, [fun test_retro_basic/1]}
+     ]}]}.
 
 test_quit(Socket) ->
   ok = kraken_client:quit(Socket).
@@ -218,5 +217,26 @@ test_publish_receive_commands(Socket1) ->
                              [{[<<"topic1">>, <<"topic2">>], <<"m1">>},
                               {[<<"topic3">>], <<"m2">>}]),
   assert_receive([{<<"topic1">>,<<"m1">>}, {<<"topic2">>,<<"m1">>}], Socket2).
+
+test_retro_basic(PublisherSock) ->
+  Socket = kraken_client:new_client(),
+  %% Buffer some messages so we dont just fail automatically
+  ok = kraken_client:publish(PublisherSock, 
+                             [{[<<"other">>], <<"dummy1">>},
+                              {[<<"other">>], <<"dummy2">>},
+                              {[<<"other">>], <<"dummy3">>},
+                              {[<<"other">>], <<"dummy4">>},
+                              {[<<"other">>], <<"dummy5">>},
+                              {[<<"other">>], <<"dummy6">>},
+                              {[<<"other">>], <<"dummy7">>}]),
+  kraken_client:register(Socket),
+  ok = kraken_client:publish(PublisherSock, 
+                             [{[<<"t1">>, <<"t2">>, <<"other">>], <<"msg1">>},
+                              {[<<"t1">>, <<"t2">>], <<"msg2">>}]),
+  ?assertMatch([], kraken_client:receive_messages(PublisherSock)),
+  SubRes = kraken_client:subscribe(Socket, [<<"t1">>, <<"t2">>, <<"null">>]),
+  kraken_client:assert_receive([{<<"t1">>,<<"msg1">>}, {<<"t2">>,<<"msg2">>},
+                                {<<"t1">>,<<"msg2">>}, {<<"t2">>,<<"msg1">>}], Socket),
+  ok.
 
 -endif.
