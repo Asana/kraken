@@ -104,11 +104,10 @@ subscribe(WPid, RequestedTopics) ->
   if Failure ->
       horizon_too_old;
     true ->
-      lists:foldl(fun(MessagePack, _AccIn) ->
-            %% log4erl:debug("MessagePack is -- ~p",[MessagePack]),
+      lists:foreach(fun(MessagePack) ->
             {Message, Topics, _Serial} = MessagePack,
             kraken_waitress:enqueue_message(WPid, Topics, Message)
-        end, undefined, BufferedMessages),
+        end, BufferedMessages),
       ok
   end.
 
