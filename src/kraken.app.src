@@ -1,6 +1,6 @@
 {application, kraken,
   [{description, "Kraken Pubsub Server"},
-   {vsn, "0.80"},
+   {vsn, "0.81"},
    {modules, [
      kraken,
      kraken_app,
