@@ -10,7 +10,7 @@
 %% API
 -export([connect/2, new_client/0, register/1, subscribe/2, unsubscribe/2, disconnect/1, publish/2,
          assert_receive/2, receive_messages/1, quit/1]).
-
+-compile(export_all).
 %%%-----------------------------------------------------------------
 %%% API
 %%%-----------------------------------------------------------------
@@ -196,7 +196,8 @@ kraken_client_test_() ->
       {with, [fun test_quit/1]},
       {with, [fun test_topic_commands/1]},
       {with, [fun test_publish_receive_commands/1]},
-      {with, [fun test_retro_basic/1]}
+      {with, [fun test_retro_basic/1]},
+      {with, [fun test_register_cutoff/1]}
      ]}]}.
 
 test_quit(Socket) ->
@@ -234,9 +235,25 @@ test_retro_basic(PublisherSock) ->
                              [{[<<"t1">>, <<"t2">>, <<"other">>], <<"msg1">>},
                               {[<<"t1">>, <<"t2">>], <<"msg2">>}]),
   ?assertMatch([], kraken_client:receive_messages(PublisherSock)),
-  SubRes = kraken_client:subscribe(Socket, [<<"t1">>, <<"t2">>, <<"null">>]),
+  kraken_client:subscribe(Socket, [<<"t1">>, <<"t2">>, <<"null">>]),
   kraken_client:assert_receive([{<<"t1">>,<<"msg1">>}, {<<"t2">>,<<"msg2">>},
                                 {<<"t1">>,<<"msg2">>}, {<<"t2">>,<<"msg1">>}], Socket),
+  ok.
+
+test_register_cutoff(PublisherSock) ->
+  Socket = kraken_client:new_client(),
+  ok = kraken_client:publish(PublisherSock,
+                             [{[<<"t1">>, <<"t2">>, <<"other">>], <<"old1">>},
+                              {[<<"t1">>, <<"t2">>], <<"old2">>}]),
+  kraken_client:register(Socket),
+  ok = kraken_client:publish(PublisherSock,
+                             [{[<<"t1">>, <<"t2">>, <<"other">>], <<"msg1">>},
+                              {[<<"t1">>, <<"t2">>], <<"msg2">>}]),
+  kraken_client:subscribe(Socket, [<<"t1">>, <<"t2">>, <<"null">>]),
+  ?assertMatch([], kraken_client:receive_messages(PublisherSock)),
+  Msgs = kraken_client:receive_messages(Socket),
+  assert_not_received_message(Msgs, <<"old1">>),
+  assert_not_received_message(Msgs, <<"old2">>),
   ok.
 
 -endif.

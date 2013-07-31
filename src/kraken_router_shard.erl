@@ -161,23 +161,23 @@ handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
   QueuePeek = bounded_queue:peek(EvictionQueue),
   {_Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], 0};
         true -> QueuePeek end),
-  %% Invalid Case
-  if (OldestMessageSerial > WaitressShardHorizon) ->
-      {reply, failure, State};
-    true ->
-      {reply, 
-       lists:foldl(fun (Topic, AccIn) ->
-              %% log4erl:debug("About to Fetch topic queue for topic: ~p" , [Topic]),
-              ContainsTopic = dict:is_key(Topic, QueueMap),
-              if ContainsTopic ->
-                  SubQueue = dict:fetch(Topic, QueueMap),
-                  lists:append(AccIn, get_messages_above_limit(
-                      SubQueue, OldestMessageSerial, []));
-                true ->
-                  AccIn
-              end
-          end , [], ShardTopics), State}
-  end.
+    %% Invalid Case
+    if (OldestMessageSerial > WaitressShardHorizon) ->
+        {reply, failure, State};
+      true ->
+        {reply, 
+          lists:foldl(fun (Topic, AccIn) ->
+                %% log4erl:debug("About to Fetch topic queue for topic: ~p" , [Topic]),
+                ContainsTopic = dict:is_key(Topic, QueueMap),
+                if ContainsTopic ->
+                    SubQueue = dict:fetch(Topic, QueueMap),
+                    FilteredMessages = get_messages_above_limit(SubQueue, WaitressShardHorizon, []),
+                    lists:append(AccIn, FilteredMessages);
+                  true ->
+                    AccIn
+        end
+    end , [], ShardTopics), State}
+end.
 
 get_messages_above_limit(Queue, MinSerial, AggList) ->
   {Item, Rest} = queue:out_r(Queue),

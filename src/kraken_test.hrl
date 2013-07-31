@@ -9,3 +9,9 @@ assert_received_messages(Results, ExpectedResults) ->
             end, Results)
       end, ExpectedResults),
   ?assert(Result =:= true).
+
+assert_not_received_message(Results, NotAllowed) ->
+  Result = lists:any(fun({_ActualTopics, ActualMessage}) ->
+            (ActualMessage =:= NotAllowed)
+          end, Results),
+  ?assert(Result =:= false).
