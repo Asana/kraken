@@ -10,7 +10,7 @@
 %% API
 -export([connect/2, new_client/0, register/1, subscribe/2, unsubscribe/2, disconnect/1, publish/2,
          assert_receive/2, receive_messages/1, quit/1]).
--compile(export_all).
+
 %%%-----------------------------------------------------------------
 %%% API
 %%%-----------------------------------------------------------------

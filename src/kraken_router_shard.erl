@@ -16,7 +16,6 @@
 -export([start_link/0, subscribe/3, unsubscribe/3, publish/4,
          topics/2, topic_status/1, waitress_pids/1]).
 
--compile(export_all).
 %%%-----------------------------------------------------------------
 %%% Definitions
 %%%-----------------------------------------------------------------
