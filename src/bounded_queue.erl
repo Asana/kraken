@@ -23,7 +23,6 @@ new(Bound) ->
 %% @spec push(Item :: Type(), bounded_queue()) -> {Type(), bounded_queue()}
 push(Item, {Queue, Bound, Len}) ->
   if (Len =:= Bound) ->
-      log4erl:warn("Dropped Item. Queue at Maximum Size: ~p", [Bound]),
       {{value, DroppedItem }, SmallerQueue} = queue:out(Queue),
       {{dropped, DroppedItem}, {queue:in(Item, SmallerQueue), Bound, Len}};
     true ->
