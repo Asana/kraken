@@ -3,7 +3,7 @@
 %% more concurrency between cores.
 %%
 %% At the moment, the kraken_router itself is a bottleneck since any router
-%% operation must first requests the list of Router shards from the kraken_router
+%% operation must first request the list of Router shards from the kraken_router
 %% process. In practice, this doesn't seem to affect performance however we could
 %% request that information once when we launch the kraken TCP server and pass it
 %% through to the various kraken_router functions if necessary.
@@ -73,9 +73,7 @@ get_horizon() ->
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
 %% Subscribers will not receive their own messages.
-%%TODO#Performance: If we moved this blocking call into the waitress it would 
-%% take this bottleneck out of the central router. Right now there is a single process 
-%% that blocks for every single client subscribe and unsubscribe.
+%% Note that this code is run in the callers process, not the router process
 %% @spec subscribe(WPid :: pid(), Topics :: [string()]) -> (ok | horizon_too_old)
 subscribe(WPid, RequestedTopics) ->
   %% log4erl:debug("In router:subscribe, : ~p ~p", [WPid, RequestedTopics]),
