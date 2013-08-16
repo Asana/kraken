@@ -134,6 +134,7 @@
 %% Responses
 -define(STORED_RESP, <<"STORED\r\n">>).
 -define(BAD_COMMAND_RESP, <<"ERROR\r\n">>).
+-define(REGISTRATION_TOO_OLD_RESP, <<"NOT_FOUND\r\n">>).
 -define(CLIENT_ERROR_RESP_PREFIX, <<"CLIENT_ERROR ">>).
 -define(SERVER_ERROR_RESP_PREFIX, <<"SERVER_ERROR ">>).
 
@@ -256,8 +257,13 @@ handle_command(?REGISTER_COMMAND, _Data, Socket, State=#state{wpid=WPid}) ->
 
 handle_command(?SUBSCRIBE_COMMAND, Data, Socket, State=#state{wpid=WPid}) ->
   Topics = binary:split(Data, <<" ">>, [global]),
-  kraken_router:subscribe(WPid, Topics),
-  gen_tcp:send(Socket, ?STORED_RESP),
+  Resp = kraken_router:subscribe(WPid, Topics),
+  case Resp of
+    registration_too_old ->
+      gen_tcp:send(Socket, ?REGISTRATION_TOO_OLD_RESP);
+    ok ->
+      gen_tcp:send(Socket, ?STORED_RESP)
+  end,
   {ok, State, Topics};
 
 handle_command(?UNSUBSCRIBE_COMMAND, Data, Socket, State=#state{wpid=WPid}) ->
