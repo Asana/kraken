@@ -28,6 +28,7 @@
     pid_to_topics,
     topic_to_pids,
     serial_number,
+    oldest_stored_serial,
     eviction_queue,
     per_topic_message_queue
     }).
@@ -109,6 +110,7 @@ init([]) ->
       pid_to_topics = ets:new(list_to_atom(?TABLE_PREFIX ++ "pid_to_topics"), [bag]),
       topic_to_pids = ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag]),
       serial_number = 0,
+      oldest_stored_serial = 0,
       %% Bounded queue for keeping track of what we stick into the per_topic_message_queue
       %% This is used for bookeeping for evicting things from the per_topic_message_queue
       %% [{Topics[], Serial#}, ...]
@@ -155,13 +157,13 @@ handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
   {reply, TopicStatus, State};
 
 handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
-            State=#state{eviction_queue=EvictionQueue,
+            State=#state{oldest_stored_serial=OldestStoredSerial,
                          per_topic_message_queue=QueueMap}) ->
-  QueuePeek = bounded_queue:peek(EvictionQueue),
-  {_Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], 0};
-        true -> QueuePeek end),
     %% Invalid Case
-    if (OldestMessageSerial > WaitressShardHorizon) ->
+    if (OldestStoredSerial > WaitressShardHorizon) ->
+        log4erl:warn(
+          "Client requested messages from too far in the past. Requested serial: ~p oldest stored serial: ~p",
+          [WaitressShardHorizon, OldestStoredSerial]),
         {reply, failure, State};
       true ->
         {reply, 
@@ -239,10 +241,12 @@ next_per_topic_message_queue(CurrentMQueueMap, EvictionSignal, MessagePack) ->
 handle_cast({publish, PublisherWPid, Topics, Message},
             State=#state{topic_to_pids=TopicToPids, 
                          eviction_queue=CurrentEvictionQueue,
+                         oldest_stored_serial=CurrentOldestStoredSerial,
                          serial_number=CurrentSerialNumber,
                          per_topic_message_queue=CurrentMQueueMap}) ->
   %% Compute the Next Serial Number
   NextSerial = CurrentSerialNumber + 1,
+
   %% The minimum information to know how to: rm things from the message queue
   %% and to know if the client serial is too old to retroact properly
   TopicPack = {Topics, NextSerial},
@@ -250,6 +254,17 @@ handle_cast({publish, PublisherWPid, Topics, Message},
   %% log4erl:debug("EvictionSignal: ~p", [EvictionSignal]),
   %% log4erl:debug("Pushed into Queue: ~p", [TopicPack]),
   %% log4erl:debug("New EvictionQueue: ~p", [NextEvictionQueue]),
+
+  %% Update the oldest stored serial if we dropped something
+  case EvictionSignal of
+    normal ->
+      NextOldestStoredSerial = CurrentOldestStoredSerial;
+    {dropped, _} ->
+      QueuePeek = bounded_queue:peek(NextEvictionQueue),
+      {_Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], 0};
+        true -> QueuePeek end),
+      NextOldestStoredSerial = OldestMessageSerial
+  end,
 
 
   %% The data we store in the message queue is constructed from this MessagePack
@@ -303,6 +318,7 @@ handle_cast({publish, PublisherWPid, Topics, Message},
   {noreply, State#state{
       serial_number=NextSerial, 
       eviction_queue=NextEvictionQueue,
+      oldest_stored_serial=NextOldestStoredSerial,
       per_topic_message_queue=NextMQueueMap}};
 
 % Cast is ok for register because it's ok if we are not notified immediatly
