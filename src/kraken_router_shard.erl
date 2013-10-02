@@ -123,8 +123,7 @@ init([]) ->
 %% @doc Incs and returns the current Serial
 handle_call(get_serial, _From,
             State=#state{serial_number=SerialNumber}) ->
-  NextSerial = SerialNumber + 1,
-  {reply, NextSerial, State#state{serial_number=NextSerial}};
+  {reply, SerialNumber, State};
 
 handle_call({subscribe, WPid, Topics}, _From,
             State=#state{pid_to_topics=PidToTopics,
@@ -186,9 +185,13 @@ get_messages_above_limit(Queue, MinSerial, AggList) ->
     empty ->
       AggList;
     {value, MessagePack = {_Message, _Topics, Serial}} ->
-      if (Serial < MinSerial) ->
+      if (Serial =< MinSerial) ->
+          % MinSerial is the serial of the latest message that we don't need.
+          % Thus, here, we've reached the first message in this per-topic
+          % queue that we don't need. Return what we have.
           AggList;
         true ->
+          % Haven't reached the first message we don't need yet, keep collecting
           get_messages_above_limit(Rest, MinSerial, [MessagePack | AggList])
       end
   end.
@@ -246,6 +249,14 @@ handle_cast({publish, PublisherWPid, Topics, Message},
                          per_topic_message_queue=CurrentMQueueMap}) ->
   %% Compute the Next Serial Number
   NextSerial = CurrentSerialNumber + 1,
+
+  % Print the current serial number occasionally (should be every few seconds)
+  if ((NextSerial rem 1000) == 0) ->
+      log4erl:warn("(~p) Serial number: ~p", [self(), NextSerial]);
+    true ->
+      % Wtf erlang?
+      true
+  end,
 
   %% The minimum information to know how to: rm things from the message queue
   %% and to know if the client serial is too old to retroact properly
