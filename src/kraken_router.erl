@@ -109,24 +109,29 @@ subscribe(WPid, RequestedTopics) ->
               RPid, ShardHorizon, ShardTopics),
             if
               (Messages == failure) ->
+                % The horizon was too long ago, remember that.
                 [failure | MsgAcc];
               true ->
+                % Concat the messages to ones from other shards
                 lists:append(Messages, MsgAcc)
             end
           end
       end, [], lists:zip(Shards, Horizons))
   end,
 
-  Failure = lists:member(failure, BufferedMessages),
   %% Clear the horizon because after the first subscribe its no longer relevant
   kraken_waitress:clear_horizon(WPid),
-  if Failure ->
+
+  if
+    lists:member(failure, BufferedMessages) ->
+      % One of the shards couldn't give us messages because the horizon was too
+      % long ago.
       registration_too_old;
     true ->
       lists:foreach(fun(MessagePack) ->
-            {Message, Topics, _Serial} = MessagePack,
-            kraken_waitress:enqueue_message(WPid, Topics, Message)
-        end, BufferedMessages),
+        {Message, Topics, _Serial} = MessagePack,
+        kraken_waitress:enqueue_message(WPid, Topics, Message)
+      end, BufferedMessages),
       ok
   end.
 
