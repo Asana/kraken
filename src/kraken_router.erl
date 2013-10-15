@@ -101,7 +101,7 @@ subscribe(WPid, RequestedTopics) ->
           error ->
             % This shard didn't have any topics, no need to get buffered
             % messages.
-            0;
+            MsgAcc;
           {ok, ShardTopics} ->
             % This is it! We have some topics and a horizon for this shard, we
             % can look up buffered messages!
@@ -122,16 +122,16 @@ subscribe(WPid, RequestedTopics) ->
   %% Clear the horizon because after the first subscribe its no longer relevant
   kraken_waitress:clear_horizon(WPid),
 
-  if
-    lists:member(failure, BufferedMessages) ->
+  Failure = lists:member(failure, BufferedMessages),
+  if Failure ->
       % One of the shards couldn't give us messages because the horizon was too
       % long ago.
       registration_too_old;
     true ->
       lists:foreach(fun(MessagePack) ->
-        {Message, Topics, _Serial} = MessagePack,
-        kraken_waitress:enqueue_message(WPid, Topics, Message)
-      end, BufferedMessages),
+            {Message, Topics, _Serial} = MessagePack,
+            kraken_waitress:enqueue_message(WPid, Topics, Message)
+        end, BufferedMessages),
       ok
   end.
 
