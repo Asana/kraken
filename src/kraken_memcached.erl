@@ -140,6 +140,7 @@
 
 %% Commands
 -define(REGISTER_COMMAND, <<"register">>).
+-define(GET_HORIZON_COMMAND, <<"get_horizon">>).
 -define(SUBSCRIBE_COMMAND, <<"subscribe">>).
 -define(UNSUBSCRIBE_COMMAND, <<"unsubscribe">>).
 -define(PUBLISH_COMMAND, <<"publish">>).
@@ -159,11 +160,9 @@ init(Socket) ->
 handle_data(<<"quit\r\n">>, Socket, State=#state{bytes_remaining=0}) ->
   handle_and_log_command(?QUIT_COMMAND, empty, Socket, State);
 
-handle_data(<<"get messages\r\n">>, Socket, State=#state{bytes_remaining=0}) ->
-  handle_and_log_command(?MESSAGES_COMMAND, empty, Socket, State);
-% Some clients append a space too
-handle_data(<<"get messages \r\n">>, Socket, State=#state{bytes_remaining=0}) ->
-  handle_and_log_command(?MESSAGES_COMMAND, empty, Socket, State);
+handle_data(<<"get ", Rest/binary>>, Socket, State=#state{bytes_remaining=0}) ->
+  Command = parse_get_command(Rest),
+  handle_and_log_command(Command, empty, Socket, State);
 
 handle_data(<<"set ", Rest/binary>>, _Socket,
             State=#state{
@@ -255,6 +254,18 @@ handle_command(?REGISTER_COMMAND, _Data, Socket, State=#state{wpid=WPid}) ->
   gen_tcp:send(Socket, ?STORED_RESP),
   {ok, State};
 
+handle_command(?GET_HORIZON_COMMAND, empty, Socket, State=#state{wpid=WPid}) ->
+  log4erl:debug("Getting horizon for client: ~p", [WPid]),
+  Horizon = kraken_router:get_horizon(),
+  {DataBytes, DataBlock} = serialize_horizon(Horizon),
+  gen_tcp:send(Socket, [
+    <<"VALUE get_horizon 0 ">>,
+    list_to_binary(integer_to_list(DataBytes-2)),
+    <<"\r\n">>,
+    DataBlock,
+    <<"END\r\n">>]),
+  {ok, State, Horizon};
+
 handle_command(?SUBSCRIBE_COMMAND, Data, Socket, State=#state{wpid=WPid}) ->
   Topics = binary:split(Data, <<" ">>, [global]),
   Resp = kraken_router:subscribe(WPid, Topics),
@@ -288,10 +299,10 @@ handle_command(?MESSAGES_COMMAND, empty, Socket, State=#state{wpid=WPid}) ->
     _ ->
       {DataBytes, DataBlock} = serialize_message_entries(Messages),
       gen_tcp:send(Socket, [
-          <<"VALUE messages 0 ">>,
-          list_to_binary(integer_to_list(DataBytes-2)),
-          <<"\r\n">>,
-          DataBlock,
+        <<"VALUE messages 0 ">>,
+        list_to_binary(integer_to_list(DataBytes-2)),
+        <<"\r\n">>,
+        DataBlock,
           <<"END\r\n">>])
   end,
   {ok, State, Messages};
@@ -307,8 +318,14 @@ handle_command(Command, _Data, Socket, State) ->
 
 serialize_topics(Topics) ->
   list_to_binary(lists:flatten(lists:map(fun(Topic) ->
-            [Topic, <<" ">>]
-        end, Topics))).
+    [Topic, <<" ">>]
+  end, Topics))).
+
+serialize_horizon(Horizon) ->
+  DataBlock = lists:flatten(lists:map(fun(ShardHorizon) ->
+    [list_to_binary(integer_to_list(ShardHorizon)), <<"\r\n">>]
+  end, Horizon)),
+  {data_size(DataBlock), DataBlock}.
 
 serialize_message_entries(MessageEntries) ->
   DataBlock = lists:flatten(lists:map(fun({Topics, Message}) ->
@@ -319,10 +336,12 @@ serialize_message_entries(MessageEntries) ->
              Message,
              <<"\r\n">>]
         end, MessageEntries)),
-  DataBytes = lists:foldl(fun(Part, Sum) ->
-          size(Part) + Sum
-      end, 0, DataBlock),
-  {DataBytes, DataBlock}.
+  {data_size(DataBlock), DataBlock}.
+
+data_size(DataBlock) ->
+  lists:foldl(fun(Part, Sum) ->
+    size(Part) + Sum
+  end, 0, DataBlock).
 
 log_command(Start, Command) ->
   log_command(Start, Command, []).
@@ -334,8 +353,13 @@ log_command(Start, Command, Details) ->
 
 parse_command(Bin) ->
   [Command, _, _, SBytesRemaining] =
-                                     binary:split(Bin, [<<" ">>, <<"\r\n">>], [global, trim]),
+    binary:split(Bin, [<<" ">>, <<"\r\n">>], [global, trim]),
   {Command, list_to_integer(binary_to_list(SBytesRemaining))}.
+
+parse_get_command(Bin) ->
+  [Command] =
+    binary:split(Bin, [<<" ">>, <<"\r\n">>], [global, trim]),
+  Command.
 
 parse_publish_entries(<<>>) ->
   [];
