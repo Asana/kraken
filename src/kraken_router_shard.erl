@@ -47,6 +47,11 @@ start_link() ->
 get_serial(RPid) -> %%Not using WPid atm
   gen_server:call(RPid, get_serial).
 
+%% Non-blocking way to get the serial. ReplyPid will be cast back with a
+%% {get_serial_reply, Horizon} message at some point.
+get_serial_async(RPid, ReplyPid) ->
+  gen_server:cast(RPid, {get_serial_async, ReplyPid}).
+
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
 %% Subscribers will not receive their own messages.
@@ -336,6 +341,11 @@ handle_cast({publish, PublisherWPid, Topics, Message},
 % when a WPid process dies.
 handle_cast({register_waitress, WPid}, State) ->
   erlang:monitor(process, WPid),
+  {noreply, State}.
+
+handle_cast({get_serial_async, ReplyPid},
+    State#state{serial_number=SerialNumber}) ->
+  gen_server:cast(ReplyPid, {get_serial_reply, SerialNumber}),
   {noreply, State}.
 
 handle_info({'DOWN', _MonitorRef, process, DownPid, _Reason},

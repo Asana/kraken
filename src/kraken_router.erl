@@ -33,7 +33,11 @@
 -record(state, {
     % Array of routers
     routers,
-    num_routers=0
+    num_routers=0,
+    % Cache of a recent horizon, so we don't have to wait for the router shards
+    % to do slow things to register.
+    horizon,
+    cached_horizon_time %% erlang:timestamp()
     }).
 
 %%%-----------------------------------------------------------------
@@ -264,6 +268,9 @@ handle_cast({register_waitress, WPid}, State=#state{routers=Routers}) ->
     end, Routers),
   {noreply, State}.
 
+handle_cast({update_cached_horizon, Horizon}, State) ->
+  {noreply, State#state{horizon=Horizon}}.
+
 handle_info({start_routers, Sup, NumRouters}, State) ->
   {noreply, start_routers(Sup, NumRouters, State)};
 
@@ -291,7 +298,7 @@ start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers})
   {ok, NewRouter} = supervisor:start_child(Sup, {
         {kraken_router_shard, self(), Count},
         {kraken_router_shard, start_link, []},
-        % Temporary because we DO not want the supervisor to restart them. The router
+        % Temporary because we DO not want the krakqasupervisor to restart them. The router
         % will spawn new router shards whenever it restarts.
         temporary,
         brutal_kill,
@@ -301,12 +308,17 @@ start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers})
   % Monitor the router so that we can detect when it exits and stop the router,
   % which will cause the supervisor to reboot the entire system.
   monitor(process, NewRouter),
+
+  % Create a zero horizon in case someone asks before we have one
+  Horizon = lists:map(fun(_) -> 0 end, Routers),
+
   start_routers(
     Sup,
     Count-1,
     State#state{
       num_routers=NumRouters+1,
-      routers=array:set(Count-1, NewRouter, Routers)}).
+      routers=array:set(Count-1, NewRouter, Routers),
+      horizon=Horizon}).
 
 
 router_topics_fold(Fun, Acc, Topics) ->
