@@ -142,6 +142,7 @@
 -define(REGISTER_COMMAND, <<"register">>).
 -define(GET_HORIZON_COMMAND, <<"get_horizon">>).
 -define(SUBSCRIBE_COMMAND, <<"subscribe">>).
+-define(RETRO_SUBSCRIBE_COMMAND, <<"retro_subscribe">>).
 -define(UNSUBSCRIBE_COMMAND, <<"unsubscribe">>).
 -define(PUBLISH_COMMAND, <<"publish">>).
 -define(MESSAGES_COMMAND, <<"messages">>).
@@ -257,18 +258,35 @@ handle_command(?REGISTER_COMMAND, _Data, Socket, State=#state{wpid=WPid}) ->
 handle_command(?GET_HORIZON_COMMAND, empty, Socket, State=#state{wpid=WPid}) ->
   log4erl:debug("Getting horizon for client: ~p", [WPid]),
   Horizon = kraken_router:get_horizon(),
-  {DataBytes, DataBlock} = serialize_horizon(Horizon),
+  DataBlock = serialize_horizon(Horizon),
+  DataBytes = size(DataBlock),
   gen_tcp:send(Socket, [
     <<"VALUE get_horizon 0 ">>,
-    list_to_binary(integer_to_list(DataBytes-2)),
+    list_to_binary(integer_to_list(DataBytes)),
     <<"\r\n">>,
     DataBlock,
+    <<"\r\n">>,
     <<"END\r\n">>]),
   {ok, State, Horizon};
 
 handle_command(?SUBSCRIBE_COMMAND, Data, Socket, State=#state{wpid=WPid}) ->
   Topics = binary:split(Data, <<" ">>, [global]),
   Resp = kraken_router:subscribe(WPid, Topics),
+  case Resp of
+    registration_too_old ->
+      gen_tcp:send(Socket, ?REGISTRATION_TOO_OLD_RESP);
+    ok ->
+      gen_tcp:send(Socket, ?STORED_RESP)
+  end,
+  {ok, State, Topics};
+
+handle_command(?RETRO_SUBSCRIBE_COMMAND, Data, Socket, State=#state{wpid=WPid}) ->
+  [HorizonData, _, TopicsData] = binary:split(Data, <<"\r\n">>, [global]),
+  HorizonBinaries = binary:split(HorizonData, <<";">>, [global, trim]),
+  Horizon = lists:map(fun(HorizonBinary) ->
+    list_to_integer(binary_to_list(HorizonBinary)) end, HorizonBinaries),
+  Topics = binary:split(TopicsData, <<" ">>, [global, trim]),
+  Resp = kraken_router:retro_subscribe(WPid, Horizon, Topics),
   case Resp of
     registration_too_old ->
       gen_tcp:send(Socket, ?REGISTRATION_TOO_OLD_RESP);
@@ -322,10 +340,9 @@ serialize_topics(Topics) ->
   end, Topics))).
 
 serialize_horizon(Horizon) ->
-  DataBlock = lists:flatten(lists:map(fun(ShardHorizon) ->
-    [list_to_binary(integer_to_list(ShardHorizon)), <<"\r\n">>]
-  end, Horizon)),
-  {data_size(DataBlock), DataBlock}.
+  list_to_binary(lists:flatten(lists:map(fun(ShardHorizon) ->
+    [list_to_binary(integer_to_list(ShardHorizon)), <<";">>]
+  end, Horizon))).
 
 serialize_message_entries(MessageEntries) ->
   DataBlock = lists:flatten(lists:map(fun({Topics, Message}) ->

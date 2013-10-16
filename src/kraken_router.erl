@@ -20,8 +20,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 %% API
--export([start_link/2, start_waitress_link/1, subscribe/2, unsubscribe/2, publish/3,
-         topics/1, topic_status/0, status/0, waitress_pids/0, get_horizon/0]).
+-export([start_link/2, start_waitress_link/1, retro_subscribe/3, subscribe/2,
+         unsubscribe/2, publish/3, topics/1, topic_status/0, status/0,
+         waitress_pids/0, get_horizon/0]).
 
 %%%-----------------------------------------------------------------
 %%% Definitions
@@ -64,6 +65,18 @@ get_horizon() ->
           kraken_router_shard:get_serial(RPid)
       end).
 
+%% @doc Subscribes WPid to a list of topics in a similar way to subscribe/2
+%% below, but do it retroactively so that any messages in between times.
+%% @spec retro_subscribe(
+%%    WPid :: pid(),
+%%    Horizon :: [int],
+%%    Topics :: [string()],
+%% ) -> (ok | horizon_too_old)
+retro_subscribe(WPid, Horizon, RequestedTopics) ->
+  classical_subscribe(WPid, RequestedTopics),
+  enqueue_buffered_messages(WPid, Horizon, RequestedTopics).
+
+
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
 %% Subscribers will not receive their own messages.
@@ -74,64 +87,71 @@ subscribe(WPid, RequestedTopics) ->
 
   % Irrespective of whether there is a horizon to get buffered messages, do the
   % subscribes.
-  router_topics_fold(fun(RPid, ShardTopics, _Acc) ->
-    kraken_router_shard:subscribe(RPid, WPid, ShardTopics)
-  end, [], RequestedTopics),
-
+  classical_subscribe(WPid, RequestedTopics),
 
   HorizonInfo = kraken_waitress:get_horizon(WPid),
-  BufferedMessages = case HorizonInfo of
-    none ->
-      % The waitress didn't have an existing horizon, no need to get buffered
-      % messages.
-      [];
-    {exists, Horizons} ->
-      % There is a horizon, go through the shards and ask them for buffered
-      % messages.
-      TopicsByRouter = topics_by_router(RequestedTopics),
-
-      State = state(),
-      Shards = array:to_list(State#state.routers),
-
-      % Loop through all the shards and the corresponding horizon simultaneously
-      lists:foldl(fun({RPid, ShardHorizon}, MsgAcc) ->
-        MaybeShardTopics = dict:find(RPid, TopicsByRouter),
-
-        case MaybeShardTopics of
-          error ->
-            % This shard didn't have any topics, no need to get buffered
-            % messages.
-            MsgAcc;
-          {ok, ShardTopics} ->
-            % This is it! We have some topics and a horizon for this shard, we
-            % can look up buffered messages!
-            Messages = kraken_router_shard:get_buffered_msgs(
-              RPid, ShardHorizon, ShardTopics),
-            if
-              (Messages == failure) ->
-                % The horizon was too long ago, remember that.
-                [failure | MsgAcc];
-              true ->
-                % Concat the messages to ones from other shards
-                lists:append(Messages, MsgAcc)
-            end
-          end
-      end, [], lists:zip(Shards, Horizons))
-  end,
 
   %% Clear the horizon because after the first subscribe its no longer relevant
   kraken_waitress:clear_horizon(WPid),
 
+  case HorizonInfo of
+    none ->
+      % The waitress didn't have an existing horizon, no need to get buffered
+      % messages.
+      ok;
+    {exists, Horizons} ->
+      % There is a horizon, go through the shards and ask them for buffered
+      % messages.
+      enqueue_buffered_messages(WPid, Horizons, RequestedTopics)
+  end.
+
+classical_subscribe(WPid, RequestedTopics) ->
+  router_topics_fold(fun(RPid, ShardTopics, _Acc) ->
+    kraken_router_shard:subscribe(RPid, WPid, ShardTopics)
+  end, [], RequestedTopics).
+
+enqueue_buffered_messages(WPid, Horizon, RequestedTopics) ->
+  TopicsByRouter = topics_by_router(RequestedTopics),
+
+  State = state(),
+  Shards = array:to_list(State#state.routers),
+
+  % Loop through all the shards and the corresponding horizon simultaneously
+  BufferedMessages = lists:foldl(fun({RPid, ShardHorizon}, MsgAcc) ->
+    MaybeShardTopics = dict:find(RPid, TopicsByRouter),
+
+    case MaybeShardTopics of
+      error ->
+        % This shard didn't have any topics, no need to get buffered
+        % messages.
+        MsgAcc;
+      {ok, ShardTopics} ->
+        % This is it! We have some topics and a horizon for this shard, we
+        % can look up buffered messages!
+        Messages = kraken_router_shard:get_buffered_msgs(
+          RPid, ShardHorizon, ShardTopics),
+        if
+          (Messages == failure) ->
+            % The horizon was too long ago, remember that.
+            [failure | MsgAcc];
+          true ->
+            % Concat the messages to ones from other shards
+            lists:append(Messages, MsgAcc)
+        end
+    end
+  end, [], lists:zip(Shards, Horizon)),
+
+
   Failure = lists:member(failure, BufferedMessages),
   if Failure ->
-      % One of the shards couldn't give us messages because the horizon was too
-      % long ago.
-      registration_too_old;
+    % One of the shards couldn't give us messages because the horizon was too
+    % long ago.
+    registration_too_old;
     true ->
       lists:foreach(fun(MessagePack) ->
-            {Message, Topics, _Serial} = MessagePack,
-            kraken_waitress:enqueue_message(WPid, Topics, Message)
-        end, BufferedMessages),
+        {Message, Topics, _Serial} = MessagePack,
+        kraken_waitress:enqueue_message(WPid, Topics, Message)
+      end, BufferedMessages),
       ok
   end.
 

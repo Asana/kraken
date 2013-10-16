@@ -9,7 +9,7 @@
 
 %% API
 -export([connect/2, new_client/0, register/1, get_horizon/1, subscribe/2,
-         unsubscribe/2, disconnect/1, publish/2,
+         retro_subscribe/3, unsubscribe/2, disconnect/1, publish/2,
          assert_receive/2, receive_messages/1, quit/1]).
 
 %%%-----------------------------------------------------------------
@@ -33,6 +33,15 @@ get_horizon(Socket) ->
 
 subscribe(Socket, Topics) ->
   topic_command(Socket, <<"subscribe">>, Topics).
+
+retro_subscribe(Socket, Horizon, Topics) ->
+  SerializedTopics = kraken_memcached:serialize_topics(Topics),
+  FullData = list_to_binary([
+    Horizon,
+    <<"\r\n">>,
+    SerializedTopics
+  ]),
+  set_command(Socket, <<"retro_subscribe">>, FullData).
 
 unsubscribe(Socket, Topics) ->
   topic_command(Socket, <<"unsubscribe">>, Topics).
@@ -278,7 +287,7 @@ test_offline_retro_basic(PublisherSock) ->
     [{[<<"t1">>, <<"t2">>, <<"other">>], <<"msg1">>},
       {[<<"t1">>, <<"t2">>], <<"msg2">>}]),
   ?assertMatch([], kraken_client:receive_messages(PublisherSock)),
-  kraken_client:subscribe(Socket, [<<"t1">>, <<"t2">>, <<"null">>]),
+  kraken_client:retro_subscribe(Socket, Horizon, [<<"t1">>, <<"t2">>, <<"null">>]),
   kraken_client:assert_receive([{<<"t1">>,<<"msg1">>}, {<<"t2">>,<<"msg2">>},
     {<<"t1">>,<<"msg2">>}, {<<"t2">>,<<"msg1">>}], Socket),
   ok.
