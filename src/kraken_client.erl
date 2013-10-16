@@ -211,7 +211,8 @@ kraken_client_test_() ->
       {with, [fun test_publish_receive_commands/1]},
       {with, [fun test_retro_basic/1]},
       {with, [fun test_register_cutoff/1]},
-      {with, [fun test_offline_retro_basic/1]}
+      {with, [fun test_offline_retro_basic/1]},
+      {with, [fun test_offline_register_cutoff/1]}
      ]}]}.
 
 test_quit(Socket) ->
@@ -235,15 +236,6 @@ test_publish_receive_commands(Socket1) ->
 
 test_retro_basic(PublisherSock) ->
   Socket = kraken_client:new_client(),
-  %% Buffer some messages so we dont just fail automatically
-  ok = kraken_client:publish(PublisherSock, 
-                             [{[<<"other">>], <<"dummy1">>},
-                              {[<<"other">>], <<"dummy2">>},
-                              {[<<"other">>], <<"dummy3">>},
-                              {[<<"other">>], <<"dummy4">>},
-                              {[<<"other">>], <<"dummy5">>},
-                              {[<<"other">>], <<"dummy6">>},
-                              {[<<"other">>], <<"dummy7">>}]),
   kraken_client:register(Socket),
   ok = kraken_client:publish(PublisherSock, 
                              [{[<<"t1">>, <<"t2">>, <<"other">>], <<"msg1">>},
@@ -272,15 +264,6 @@ test_register_cutoff(PublisherSock) ->
 
 test_offline_retro_basic(PublisherSock) ->
   Socket = kraken_client:new_client(),
-  %% Buffer some messages so we dont just fail automatically
-  ok = kraken_client:publish(PublisherSock,
-    [{[<<"other">>], <<"dummy1">>},
-      {[<<"other">>], <<"dummy2">>},
-      {[<<"other">>], <<"dummy3">>},
-      {[<<"other">>], <<"dummy4">>},
-      {[<<"other">>], <<"dummy5">>},
-      {[<<"other">>], <<"dummy6">>},
-      {[<<"other">>], <<"dummy7">>}]),
   Horizon = kraken_client:get_horizon(Socket),
   log4erl:warn("Horizon ~p", [Horizon]),
   ok = kraken_client:publish(PublisherSock,
@@ -290,6 +273,22 @@ test_offline_retro_basic(PublisherSock) ->
   kraken_client:retro_subscribe(Socket, Horizon, [<<"t1">>, <<"t2">>, <<"null">>]),
   kraken_client:assert_receive([{<<"t1">>,<<"msg1">>}, {<<"t2">>,<<"msg2">>},
     {<<"t1">>,<<"msg2">>}, {<<"t2">>,<<"msg1">>}], Socket),
+  ok.
+
+test_offline_register_cutoff(PublisherSock) ->
+  Socket = kraken_client:new_client(),
+  ok = kraken_client:publish(PublisherSock,
+    [{[<<"t1">>, <<"t2">>, <<"other">>], <<"old1">>},
+      {[<<"t1">>, <<"t2">>], <<"old2">>}]),
+  Horizon = kraken_client:get_horizon(Socket),
+  ok = kraken_client:publish(PublisherSock,
+    [{[<<"t1">>, <<"t2">>, <<"other">>], <<"msg1">>},
+      {[<<"t1">>, <<"t2">>], <<"msg2">>}]),
+  kraken_client:retro_subscribe(Socket, Horizon, [<<"t1">>, <<"t2">>, <<"null">>]),
+  ?assertMatch([], kraken_client:receive_messages(PublisherSock)),
+  Msgs = kraken_client:receive_messages(Socket),
+  assert_not_received_message(Msgs, <<"old1">>),
+  assert_not_received_message(Msgs, <<"old2">>),
   ok.
 
 -endif.
