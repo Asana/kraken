@@ -68,14 +68,8 @@ start_waitress_link(Name) ->
 %% Gets the current serial from each router_shard, and returns them as a list.
 %% @spec get_horizon() -> [Serials]
 get_horizon() ->
-  #state{horizon_updater=HorizonUpdater,
-         latest_cached_horizon=LatestCachedHorizon}
-    = state(),
-
-  % Ask the horizon updater to give us a new horizon at some point for next time
-  kraken_horizon_updater:get_horizon(HorizonUpdater),
-
-  % And return something old, but hopefully not too old
+  #state{latest_cached_horizon=LatestCachedHorizon} = state(),
+  % Return something old, but hopefully not too old
   LatestCachedHorizon.
 
 get_horizon_reply(Horizon) ->
@@ -215,6 +209,10 @@ publish(PublisherWPid, Topics, Message) ->
   router_topics_fold(fun(Router, RouterTopics, _Acc) ->
         kraken_router_shard:publish(Router, PublisherWPid, RouterTopics, Message)
     end, undefined, Topics),
+
+  % Ask the horizon updater to give us a new horizon at some point in the future
+  State = state(),
+  kraken_horizon_updater:get_horizon(State#state.horizon_updater),
   ok.
 
 %% @doc Returns the list of waitress pids.
