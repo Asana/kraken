@@ -149,6 +149,11 @@ enqueue_buffered_messages(WPid, Horizon, RequestedTopics) ->
         if
           (Messages == failure) ->
             % The horizon was too long ago, remember that.
+            log4erl:warn("Horizon too long ago during subscribe. " ++
+                "Requested horizon ~p Requested shard serial ~p Shard ~p " ++
+                "Cached horizon ~p",
+                [Horizon, ShardHorizon, RPid,
+                  State#state.latest_cached_horizon]),
             [failure | MsgAcc];
           true ->
             % Concat the messages to ones from other shards

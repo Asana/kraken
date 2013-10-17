@@ -106,12 +106,8 @@ handle_call(get_horizon, _From, State=#state{horizon=Horizon}) ->
       {reply, {exists, Horizon}, State}
   end;
 
-handle_call({set_horizon, NewHorizon}, _From, State=#state{horizon=OldHorizon}) ->
-  if (OldHorizon =:= undefined) or (NewHorizon =:= undefined) ->
-      {reply, ok, State#state{horizon=NewHorizon}};
-    true ->
-      {reply, ok, State#state{horizon=OldHorizon}}
-  end.
+handle_call({set_horizon, NewHorizon}, _From, State) ->
+  {reply, ok, State#state{horizon=NewHorizon}}.
 
 handle_cast({enqueue_message, Topics, Message},
             State=#state{
