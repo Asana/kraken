@@ -1,16 +1,16 @@
 %%%-------------------------------------------------------------------
 %%% Stores (and keeps up to date) a horizon from the router shards
 %%%-------------------------------------------------------------------
--module(kraken_horizon_cache).
+-module(kraken_horizon_updater).
 
 -behaviour(gen_server).
 
 
 %% Callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+-export([init/1, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
 %% API
--export([start_link/1]).
+-export([start_link/1, get_horizon/1]).
 
 -define(SERVER, ?MODULE).
 
@@ -18,9 +18,7 @@
 -define(REFRESH_INTERVAL, 1000000).
 
 -record(state, {
-  router_shards,
-  latest_cached_horizon,
-  cached_horizon_time %% erlang:timestamp()
+  router_shards
 }).
 
 %%%===================================================================
@@ -30,43 +28,31 @@
 start_link(RouterShards) ->
   gen_server:start_link(?MODULE, [RouterShards], []).
 
-get_horizon(CachePid) ->
-  gen_server:call(CachePid, {get_horizon}).
+%% Non-blocking way to get the horizon. ReplyPid will be cast back with a
+%% {get_horizon_reply, Horizon} message at some point.
+%% This causes the kraken_horizon_updater process to do potentially slow work.
+get_horizon(UpdaterPid) ->
+  gen_server:cast(UpdaterPid, get_horizon).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
 init([RouterShards]) ->
-  % Create a zero horizon in case someone asks before we have one
-  Horizon = lists:map(fun(_) -> 0 end, RouterShards),
-  {ok, #state{router_shards=RouterShards, latest_cached_horizon=Horizon}}.
+  {ok, #state{router_shards=RouterShards}}.
 
-%% Returns a recent horizon immediately and, if it was relatively old, queues
-%% an operation to get a new horizon.
-handle_call({get_horizon}, _From,
-    State#state{
-      cached_horizon_time=CachedHorizonTime,
-      latest_cached_horizon=CachedHorizon
-    }) ->
+handle_cast(get_horizon, State=#state{router_shards=RouterShards}) ->
+  % Get the horizon by synchronously looping through the shards, doing
+  % synchronous get calls. This could theoretically  be done in parallel, but
+  % that would make the API ugly and there's no need for it to be fast.
+  NewHorizon = lists:map(fun(RPid) ->
+    kraken_router_shard:get_serial(RPid)
+  end, RouterShards),
 
-  RefreshNow = timer:now_diff(CachedHorizonTime)
-  if
+  % Ick, circular. There's probably some kind of interface, can't be bothered.
+  kraken_router:get_horizon_reply(NewHorizon),
 
-  {reply, CachedHorizon, State}.
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling cast messages
-%%
-%% @spec handle_cast(Msg, State) -> {noreply, State} |
-%%                                  {noreply, State, Timeout} |
-%%                                  {stop, Reason, State}
-%% @end
-%%--------------------------------------------------------------------
-handle_cast({refresh_horizon}, State) ->
-  {noreply, State}.
+  {noreply, State};
 
 handle_cast(stop, State) ->
   {stop, normal, State}.

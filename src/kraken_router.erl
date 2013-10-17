@@ -24,6 +24,9 @@
          unsubscribe/2, publish/3, topics/1, topic_status/0, status/0,
          waitress_pids/0, get_horizon/0]).
 
+%% Internal callbacks
+-export([get_horizon_reply/1]).
+
 %%%-----------------------------------------------------------------
 %%% Definitions
 %%%-----------------------------------------------------------------
@@ -36,8 +39,8 @@
     num_routers=0,
     % Cache of a recent horizon, so we don't have to wait for the router shards
     % to do slow things to register.
-    horizon,
-    cached_horizon_time %% erlang:timestamp()
+    latest_cached_horizon,
+    horizon_updater
     }).
 
 %%%-----------------------------------------------------------------
@@ -65,9 +68,18 @@ start_waitress_link(Name) ->
 %% Gets the current serial from each router_shard, and returns them as a list.
 %% @spec get_horizon() -> [Serials]
 get_horizon() ->
-  router_map(fun(RPid) ->
-          kraken_router_shard:get_serial(RPid)
-      end).
+  #state{horizon_updater=HorizonUpdater,
+         latest_cached_horizon=LatestCachedHorizon}
+    = state(),
+
+  % Ask the horizon updater to give us a new horizon at some point for next time
+  kraken_horizon_updater:get_horizon(HorizonUpdater),
+
+  % And return something old, but hopefully not too old
+  LatestCachedHorizon.
+
+get_horizon_reply(Horizon) ->
+  gen_server:call(?SERVER, {store_horizon, Horizon}).
 
 %% @doc Subscribes WPid to a list of topics in a similar way to subscribe/2
 %% below, but do it retroactively so that any messages in between times.
@@ -258,7 +270,10 @@ init([Sup, NumRouters]) ->
   {ok, #state{routers=array:new(NumRouters)}}.
 
 handle_call(state, _From, State) ->
-  {reply, State, State}.
+  {reply, State, State};
+
+handle_call({store_horizon, Horizon}, _From, State) ->
+  {reply, ok, State#state{latest_cached_horizon=Horizon}}.
 
 % Cast is ok for register because it's ok if we are not notified immediatly
 % when a WPid process dies.
@@ -267,9 +282,6 @@ handle_cast({register_waitress, WPid}, State=#state{routers=Routers}) ->
         gen_server:cast(Router, {register_waitress, WPid})
     end, Routers),
   {noreply, State}.
-
-handle_cast({update_cached_horizon, Horizon}, State) ->
-  {noreply, State#state{horizon=Horizon}}.
 
 handle_info({start_routers, Sup, NumRouters}, State) ->
   {noreply, start_routers(Sup, NumRouters, State)};
@@ -292,8 +304,19 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Private Utility
 %%%-----------------------------------------------------------------
 
-start_routers(_Sup, 0, State) ->
-  State;
+start_routers(Sup, 0, State=#state{routers=RouterShards}) ->
+  % Now there are no more routers to start, start the horizon updater
+  {ok, HorizonUpdater} = supervisor:start_child(Sup, {
+    {kraken_horizon_updater, self()},
+    {kraken_horizon_updater, start_link, [array:to_list(RouterShards)]},
+    % Temporary because we share this supervisor, so the next router will make
+    % a new one
+    temporary,
+    brutal_kill,
+    worker,
+    [kraken_horizon_updater]
+  }),
+  State#state{horizon_updater=HorizonUpdater};
 start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers}) ->
   {ok, NewRouter} = supervisor:start_child(Sup, {
         {kraken_router_shard, self(), Count},
@@ -310,7 +333,7 @@ start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers})
   monitor(process, NewRouter),
 
   % Create a zero horizon in case someone asks before we have one
-  Horizon = lists:map(fun(_) -> 0 end, Routers),
+  Horizon = lists:map(fun(_) -> 0 end, array:to_list(Routers)),
 
   start_routers(
     Sup,
@@ -318,8 +341,7 @@ start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers})
     State#state{
       num_routers=NumRouters+1,
       routers=array:set(Count-1, NewRouter, Routers),
-      horizon=Horizon}).
-
+      latest_cached_horizon=Horizon}).
 
 router_topics_fold(Fun, Acc, Topics) ->
   dict:fold(Fun, Acc, topics_by_router(Topics)).
