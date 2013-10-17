@@ -321,7 +321,7 @@ start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers})
   {ok, NewRouter} = supervisor:start_child(Sup, {
         {kraken_router_shard, self(), Count},
         {kraken_router_shard, start_link, []},
-        % Temporary because we DO not want the krakqasupervisor to restart them. The router
+        % Temporary because we DO not want the supervisor to restart them. The router
         % will spawn new router shards whenever it restarts.
         temporary,
         brutal_kill,

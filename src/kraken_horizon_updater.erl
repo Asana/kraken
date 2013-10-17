@@ -1,21 +1,26 @@
 %%%-------------------------------------------------------------------
-%%% Stores (and keeps up to date) a horizon from the router shards
+%%% A process to get horizons from the router shards, presenting an
+%%% asynchronous interface.
+%%% In normal operation the get_serial calls on the router shards have a very
+%%% high variance. Most are very quick, but they can get stuck in a queue,
+%%% probably behind publish operations.
+%%% We are reasonably confident that this process will keep up with the
+%%% requests in the long term, because registers are infrequent, and this
+%%% operation is cheap, and they will naturally bunch together if another
+%%% operation is slow.
 %%%-------------------------------------------------------------------
 -module(kraken_horizon_updater).
 
 -behaviour(gen_server).
 
-
 %% Callbacks
 -export([init/1, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
+
 %% API
 -export([start_link/1, get_horizon/1]).
 
 -define(SERVER, ?MODULE).
-
-%% Refresh interval (in microseconds) is 1 second.
--define(REFRESH_INTERVAL, 1000000).
 
 -record(state, {
   router_shards
@@ -43,7 +48,7 @@ init([RouterShards]) ->
 
 handle_cast(get_horizon, State=#state{router_shards=RouterShards}) ->
   % Get the horizon by synchronously looping through the shards, doing
-  % synchronous get calls. This could theoretically  be done in parallel, but
+  % synchronous get calls. This could theoretically be done in parallel, but
   % that would make the API ugly and there's no need for it to be fast.
   NewHorizon = lists:map(fun(RPid) ->
     kraken_router_shard:get_serial(RPid)
@@ -66,7 +71,3 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
