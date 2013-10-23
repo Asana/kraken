@@ -40,7 +40,11 @@
     % Cache of a recent horizon, so we don't have to wait for the router shards
     % to do slow things to register.
     latest_cached_horizon,
-    horizon_updater
+    % The pid of a kraken_horizon_updater
+    horizon_updater,
+    % Whether we are currently waiting for the kraken_horizon_updater to give
+    % us an update (so we shouldn't ask it again).
+    waiting_for_updated_horizon=false
     }).
 
 %%%-----------------------------------------------------------------
@@ -210,9 +214,8 @@ publish(PublisherWPid, Topics, Message) ->
         kraken_router_shard:publish(Router, PublisherWPid, RouterTopics, Message)
     end, undefined, Topics),
 
-  % Ask the horizon updater to give us a new horizon at some point in the future
-  State = state(),
-  kraken_horizon_updater:get_horizon(State#state.horizon_updater),
+  % Make sure we are getting a new horizon at some point in the future
+  gen_server:call(?SERVER, ensure_updating_horizon),
   ok.
 
 %% @doc Returns the list of waitress pids.
@@ -276,7 +279,23 @@ handle_call(state, _From, State) ->
   {reply, State, State};
 
 handle_call({store_horizon, Horizon}, _From, State) ->
-  {reply, ok, State#state{latest_cached_horizon=Horizon}}.
+  {reply, ok, State#state{
+    latest_cached_horizon=Horizon,
+    waiting_for_updated_horizon = false}};
+
+handle_call(ensure_updating_horizon, _From,
+    State=#state{waiting_for_updated_horizon = false,
+      horizon_updater = HorizonUpdater}) ->
+  % We're not already updating the horizon, start doing it.
+  kraken_horizon_updater:get_horizon(HorizonUpdater),
+  {reply, ok, State#state{waiting_for_updated_horizon = true}};
+
+handle_call(ensure_updating_horizon, _From,
+    State=#state{waiting_for_updated_horizon = true}) ->
+  % We're already updating the horizon, it may be out of date by the time it
+  % gets back to us, but if we keep doing this repeatedly, we won't get far
+  % behind.
+  {reply, ok, State}.
 
 % Cast is ok for register because it's ok if we are not notified immediatly
 % when a WPid process dies.

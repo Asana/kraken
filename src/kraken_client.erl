@@ -251,9 +251,11 @@ test_register_cutoff(PublisherSock) ->
   ok = kraken_client:publish(PublisherSock,
                              [{[<<"t1">>, <<"t2">>, <<"other">>], <<"old1">>},
                               {[<<"t1">>, <<"t2">>], <<"old2">>}]),
-  % Ask for the horizon which will update the fast cache of the horizon
-  kraken_client:get_horizon(Socket),
-  % Wait a bit (omg!)
+  % Wait a bit for the publish to be fully done (omg!)
+  timer:sleep(100),
+  % Do another publish to force the fast cache of the horizon to update
+  ok = kraken_client:publish(PublisherSock, [{[<<"t9">>], <<"foo">>}]),
+  % Wait for that to finish happening
   timer:sleep(100),
   % Register a second time to get a horizon that is genuinely after the old
   % publishes
@@ -285,9 +287,11 @@ test_offline_register_cutoff(PublisherSock) ->
   ok = kraken_client:publish(PublisherSock,
     [{[<<"t1">>, <<"t2">>, <<"other">>], <<"old1">>},
       {[<<"t1">>, <<"t2">>], <<"old2">>}]),
-  % Ask for the horizon which will update the fast cache of the horizon
-  kraken_client:get_horizon(Socket),
-  % Wait a bit (omg!)
+  % Wait a bit for the publish to be fully done (omg!)
+  timer:sleep(100),
+  % Do another publish to force the fast cache of the horizon to update
+  ok = kraken_client:publish(PublisherSock, [{[<<"t9">>], <<"foo">>}]),
+  % Wait for that to finish happening
   timer:sleep(100),
   % This time we'll get a horizon that is genuinely after the old publishes
   Horizon = kraken_client:get_horizon(Socket),
