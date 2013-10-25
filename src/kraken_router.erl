@@ -338,7 +338,9 @@ start_routers(Sup, 0, State=#state{routers=RouterShards}) ->
     worker,
     [kraken_horizon_updater]
   }),
+  monitor(process, HorizonUpdater),
   State#state{horizon_updater=HorizonUpdater};
+
 start_routers(Sup, Count, State=#state{num_routers=NumRouters, routers=Routers}) ->
   {ok, NewRouter} = supervisor:start_child(Sup, {
         {kraken_router_shard, self(), Count},
