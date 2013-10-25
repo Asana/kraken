@@ -44,7 +44,7 @@
     horizon_updater,
     % Whether we are currently waiting for the kraken_horizon_updater to give
     % us an update (so we shouldn't ask it again).
-    waiting_for_updated_horizon=false
+    in_progress_horizon_updates=0
     }).
 
 %%%-----------------------------------------------------------------
@@ -278,24 +278,27 @@ init([Sup, NumRouters]) ->
 handle_call(state, _From, State) ->
   {reply, State, State};
 
-handle_call({store_horizon, Horizon}, _From, State) ->
+handle_call({store_horizon, Horizon}, _From,
+    State=#state{in_progress_horizon_updates
+        = InProgressHorizonUpdates}) ->
   {reply, ok, State#state{
     latest_cached_horizon=Horizon,
-    waiting_for_updated_horizon = false}};
+    in_progress_horizon_updates = InProgressHorizonUpdates - 1}};
 
 handle_call(ensure_updating_horizon, _From,
-    State=#state{waiting_for_updated_horizon = false,
+    State=#state{in_progress_horizon_updates = 2}) ->
+  % We're already updating the horizon twice, it may be out of date by the time
+  % it gets back to us, but the second one won't be, so we'll be up to date in
+  % the end
+  {reply, ok, State};
+
+handle_call(ensure_updating_horizon, _From,
+    State=#state{in_progress_horizon_updates = InProgressHorizonUpdates,
       horizon_updater = HorizonUpdater}) ->
-  % We're not already updating the horizon, start doing it.
+  % We're not already updating the horizon too many times, start doing it.
   kraken_horizon_updater:get_horizon(HorizonUpdater),
-  {reply, ok, State#state{waiting_for_updated_horizon = true}};
-
-handle_call(ensure_updating_horizon, _From,
-    State=#state{waiting_for_updated_horizon = true}) ->
-  % We're already updating the horizon, it may be out of date by the time it
-  % gets back to us, but if we keep doing this repeatedly, we won't get far
-  % behind.
-  {reply, ok, State}.
+  {reply, ok,
+    State#state{in_progress_horizon_updates = InProgressHorizonUpdates + 1}}.
 
 % Cast is ok for register because it's ok if we are not notified immediatly
 % when a WPid process dies.
