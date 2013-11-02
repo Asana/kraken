@@ -14,7 +14,8 @@
          code_change/3]).
 %% API
 -export([start_link/0, subscribe/3, unsubscribe/3, publish/4,
-    topics/2, topic_status/1, waitress_pids/1, get_serial/1, get_buffered_msgs/3]).
+    topics/2, topic_status/1, waitress_pids/1, get_buffered_msgs/3,
+    current_timestamp/0]).
 
 %%%-----------------------------------------------------------------
 %%% Definitions
@@ -27,8 +28,7 @@
     % Total count of topics in the system
     pid_to_topics,
     topic_to_pids,
-    serial_number,
-    oldest_stored_serial,
+    oldest_stored_timestamp,
     eviction_queue,
     per_topic_message_queue
     }).
@@ -39,13 +39,6 @@
 
 start_link() ->
   gen_server:start_link(?MODULE, [], []).
-
-%% @doc Gets and returns the serial from the Router Shard with 
-%% Pid = RPid
-%%
-%% @spec register(RPid :: pid(), WPid :: pid()) -> int()
-get_serial(RPid) -> %%Not using WPid atm
-  gen_server:call(RPid, get_serial).
 
 %% @doc Subscribes WPid to a list of topics so that they will receive messages
 %% whenever another client publishes to the topic. This is a synchronous call.
@@ -109,21 +102,15 @@ init([]) ->
   {ok, #state{
       pid_to_topics = ets:new(list_to_atom(?TABLE_PREFIX ++ "pid_to_topics"), [bag]),
       topic_to_pids = ets:new(list_to_atom(?TABLE_PREFIX ++ "topic_to_pids"), [bag]),
-      serial_number = 0,
-      oldest_stored_serial = 0,
+      oldest_stored_timestamp = current_timestamp(),
       %% Bounded queue for keeping track of what we stick into the per_topic_message_queue
       %% This is used for bookeeping for evicting things from the per_topic_message_queue
-      %% [{Topics[], Serial#}, ...]
+      %% [{Topics[], Timestamp}, ...]
       eviction_queue = bounded_queue:new(MessagesStoredPerRouterShard),
       %% Keeps track of the recent messages for a given topic
       %% {Topic => Queue()}
       per_topic_message_queue = dict:new()
       }}.
-
-%% @doc Incs and returns the current Serial
-handle_call(get_serial, _From,
-            State=#state{serial_number=SerialNumber}) ->
-  {reply, SerialNumber, State};
 
 handle_call({subscribe, WPid, Topics}, _From,
             State=#state{pid_to_topics=PidToTopics,
@@ -155,44 +142,44 @@ handle_call(topic_status, _From, State=#state{topic_to_pids=TopicToPids}) ->
       end, dict:new(), TopicToPids),
   {reply, TopicStatus, State};
 
-handle_call({get_buffered_msgs, WaitressShardHorizon, ShardTopics}, _From,
-            State=#state{oldest_stored_serial=OldestStoredSerial,
+handle_call({get_buffered_msgs, RequestedTimestamp, ShardTopics}, _From,
+            State=#state{oldest_stored_timestamp=OldestStoredTimestamp,
                          per_topic_message_queue=QueueMap}) ->
-    %% Invalid Case
-    if (OldestStoredSerial > WaitressShardHorizon) ->
-        log4erl:warn(
-          "Client requested messages from too far in the past. Requested serial: ~p oldest stored serial: ~p",
-          [WaitressShardHorizon, OldestStoredSerial]),
-        {reply, failure, State};
-      true ->
-        {reply, 
-          lists:foldl(fun (Topic, AccIn) ->
-                %% log4erl:debug("About to Fetch topic queue for topic: ~p" , [Topic]),
-                ContainsTopic = dict:is_key(Topic, QueueMap),
-                if ContainsTopic ->
-                    SubQueue = dict:fetch(Topic, QueueMap),
-                    FilteredMessages = get_messages_above_limit(SubQueue, WaitressShardHorizon, []),
-                    lists:append(AccIn, FilteredMessages);
-                  true ->
-                    AccIn
-        end
-    end , [], ShardTopics), State}
+  %% Invalid Case
+  if (OldestStoredTimestamp > RequestedTimestamp) ->
+      log4erl:warn(
+        "Client requested messages from too far in the past. Requested timestamp: ~p oldest stored timestamp: ~p",
+        [RequestedTimestamp, OldestStoredTimestamp]),
+      {reply, failure, State};
+    true ->
+      {reply,
+        lists:foldl(fun (Topic, AccIn) ->
+              %% log4erl:debug("About to Fetch topic queue for topic: ~p" , [Topic]),
+              ContainsTopic = dict:is_key(Topic, QueueMap),
+              if ContainsTopic ->
+                  SubQueue = dict:fetch(Topic, QueueMap),
+                  FilteredMessages = get_messages_above_limit(SubQueue, RequestedTimestamp, []),
+                  lists:append(AccIn, FilteredMessages);
+                true ->
+                  AccIn
+      end
+  end , [], ShardTopics), State}
 end.
 
-get_messages_above_limit(Queue, MinSerial, AggList) ->
+get_messages_above_limit(Queue, MinTimestamp, AggList) ->
   {Item, Rest} = queue:out_r(Queue),
   case Item of
     empty ->
       AggList;
-    {value, MessagePack = {_Message, _Topics, Serial}} ->
-      if (Serial =< MinSerial) ->
-          % MinSerial is the serial of the latest message that we don't need.
+    {value, MessagePack = {_Message, _Topics, MessageTimestamp}} ->
+      if (MessageTimestamp =< MinTimestamp) ->
+          % MinTimestamp is the time of the latest message that we don't need.
           % Thus, here, we've reached the first message in this per-topic
           % queue that we don't need. Return what we have.
           AggList;
         true ->
           % Haven't reached the first message we don't need yet, keep collecting
-          get_messages_above_limit(Rest, MinSerial, [MessagePack | AggList])
+          get_messages_above_limit(Rest, MinTimestamp, [MessagePack | AggList])
       end
   end.
 
@@ -204,7 +191,6 @@ get_messages_above_limit(Queue, MinSerial, AggList) ->
 %% already sharded so this should leverage multiple cores regardless.
 
 %% Things we do here:
-%% inc the serial
 %% take the message and push the messagepack into the EvictionQueue
 %% if something was dropped, nextMapg = new, else nextMap = current
 %% enqueue messages normally
@@ -215,7 +201,7 @@ get_clean_per_topic_message_queue(MQueueMap, normal) ->
   MQueueMap;
 get_clean_per_topic_message_queue(MQueueMap, {dropped, TopicPack}) ->
   %% TODO: assert that the queue isnt already empty
-  {DroppedTopics, _Serial} = TopicPack,
+  {DroppedTopics, _Timestamp} = TopicPack,
   lists:foldl(fun (Topic, AccIn) -> 
         Map = dict:update(Topic, fun (Q) -> queue:drop(Q) end, AccIn),
         SubQueue = dict:fetch(Topic, Map),
@@ -229,7 +215,7 @@ get_clean_per_topic_message_queue(MQueueMap, {dropped, TopicPack}) ->
 
 %% Generate the per_topic_message_queue after the new messagepack is added
 push_mpack_on_per_topic_message_queue(MQueueMap, MessagePack) ->
-  {_Message, Topics, _Serial} = MessagePack,
+  {_Message, Topics, _Timestamp} = MessagePack,
   lists:foldl(fun (Topic, AccIn) -> 
         dict:update(Topic, fun (Q) -> queue:in(MessagePack, Q) end,
                     queue:in(MessagePack, queue:new()), AccIn) end,
@@ -244,43 +230,42 @@ next_per_topic_message_queue(CurrentMQueueMap, EvictionSignal, MessagePack) ->
 handle_cast({publish, PublisherWPid, Topics, Message},
             State=#state{topic_to_pids=TopicToPids, 
                          eviction_queue=CurrentEvictionQueue,
-                         oldest_stored_serial=CurrentOldestStoredSerial,
-                         serial_number=CurrentSerialNumber,
+                         oldest_stored_timestamp=CurrentOldestStoredTimestamp,
                          per_topic_message_queue=CurrentMQueueMap}) ->
-  %% Compute the Next Serial Number
-  NextSerial = CurrentSerialNumber + 1,
-
-  % Print the current serial number occasionally (should be every few seconds)
-  if ((NextSerial rem 1000) == 0) ->
-      log4erl:warn("(~p) Serial number: ~p", [self(), NextSerial]);
-    true ->
-      % Wtf erlang?
-      true
-  end,
+  CurrentTimestamp = current_timestamp(),
 
   %% The minimum information to know how to: rm things from the message queue
-  %% and to know if the client serial is too old to retroact properly
-  TopicPack = {Topics, NextSerial},
+  %% and to know if the client timestamp is too old to retroact properly
+  TopicPack = {Topics, CurrentTimestamp},
   {EvictionSignal, NextEvictionQueue} = bounded_queue:push(TopicPack, CurrentEvictionQueue),
   %% log4erl:debug("EvictionSignal: ~p", [EvictionSignal]),
   %% log4erl:debug("Pushed into Queue: ~p", [TopicPack]),
   %% log4erl:debug("New EvictionQueue: ~p", [NextEvictionQueue]),
 
-  %% Update the oldest stored serial if we dropped something
+  %% Update the oldest stored timestamp if we dropped something
   case EvictionSignal of
     normal ->
-      NextOldestStoredSerial = CurrentOldestStoredSerial;
+      NextOldestStoredTimestamp = CurrentOldestStoredTimestamp;
     {dropped, _} ->
       QueuePeek = bounded_queue:peek(NextEvictionQueue),
-      {_Topics, OldestMessageSerial} = (if (QueuePeek == empty) -> {[], 0};
+      {_Topics, OldestMessageTimestamp} = (if (QueuePeek == empty) -> {[], 0};
         true -> QueuePeek end),
-      NextOldestStoredSerial = OldestMessageSerial
+      NextOldestStoredTimestamp = OldestMessageTimestamp,
+
+      % Print the current oldest timestamp occasionally (should be every few seconds)
+      if ((NextOldestStoredTimestamp rem 1000) == 0) ->
+        log4erl:warn("(~p) Oldest available timestamp: ~p",
+          [self(), NextOldestStoredTimestamp]);
+        true ->
+          % Wtf erlang?
+          true
+      end
   end,
 
 
   %% The data we store in the message queue is constructed from this MessagePack
   %% For each Topic Key we store the message
-  MessagePack = {Message, Topics, NextSerial},
+  MessagePack = {Message, Topics, CurrentTimestamp},
   %% log4erl:debug("MessagePack: ~p", [MessagePack]),
   NextMQueueMap = next_per_topic_message_queue(CurrentMQueueMap, EvictionSignal, MessagePack),
 
@@ -327,9 +312,8 @@ handle_cast({publish, PublisherWPid, Topics, Message},
     undefined -> ok
   end,
   {noreply, State#state{
-      serial_number=NextSerial, 
       eviction_queue=NextEvictionQueue,
-      oldest_stored_serial=NextOldestStoredSerial,
+      oldest_stored_timestamp=NextOldestStoredTimestamp,
       per_topic_message_queue=NextMQueueMap}};
 
 % Cast is ok for register because it's ok if we are not notified immediatly
@@ -337,6 +321,10 @@ handle_cast({publish, PublisherWPid, Topics, Message},
 handle_cast({register_waitress, WPid}, State) ->
   erlang:monitor(process, WPid),
   {noreply, State}.
+
+current_timestamp() ->
+  {Mega, Secs, _} = os:timestamp(),
+  Mega * 1000000 + Secs.
 
 handle_info({'DOWN', _MonitorRef, process, DownPid, _Reason},
             State=#state{pid_to_topics=PidToTopics,

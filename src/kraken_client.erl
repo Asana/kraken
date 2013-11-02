@@ -8,7 +8,7 @@
 %%%-----------------------------------------------------------------
 
 %% API
--export([connect/2, new_client/0, register/1, get_horizon/1, subscribe/2,
+-export([connect/2, new_client/0, register/1, subscribe/2,
          retro_subscribe/3, unsubscribe/2, disconnect/1, publish/2,
          assert_receive/2, receive_messages/1, quit/1]).
 
@@ -28,16 +28,13 @@ disconnect(Socket) ->
 register(Socket) ->
   set_command(Socket, <<"register">>, <<>>).
 
-get_horizon(Socket) ->
-  get_command(Socket, <<"get_horizon">>).
-
 subscribe(Socket, Topics) ->
   topic_command(Socket, <<"subscribe">>, Topics).
 
 retro_subscribe(Socket, Horizon, Topics) ->
   SerializedTopics = kraken_memcached:serialize_topics(Topics),
   FullData = list_to_binary([
-    Horizon,
+    list_to_binary(integer_to_list(Horizon)),
     <<"\r\n">>,
     SerializedTopics
   ]),
@@ -237,6 +234,7 @@ test_publish_receive_commands(Socket1) ->
 test_retro_basic(PublisherSock) ->
   Socket = kraken_client:new_client(),
   kraken_client:register(Socket),
+  timer:sleep(1000),
   ok = kraken_client:publish(PublisherSock, 
                              [{[<<"t1">>, <<"t2">>, <<"other">>], <<"msg1">>},
                               {[<<"t1">>, <<"t2">>], <<"msg2">>}]),
@@ -251,18 +249,13 @@ test_register_cutoff(PublisherSock) ->
   ok = kraken_client:publish(PublisherSock,
                              [{[<<"t1">>, <<"t2">>, <<"other">>], <<"old1">>},
                               {[<<"t1">>, <<"t2">>], <<"old2">>}]),
-  % Wait a bit for the publish to be fully done (omg!)
-  timer:sleep(100),
-  % Do another publish to force the fast cache of the horizon to update
-  ok = kraken_client:publish(PublisherSock, [{[<<"t9">>], <<"foo">>}]),
   % Wait for that to finish happening
-  timer:sleep(100),
-  % Register a second time to get a horizon that is genuinely after the old
-  % publishes
+  timer:sleep(1000),
   kraken_client:register(Socket),
   ok = kraken_client:publish(PublisherSock,
                              [{[<<"t1">>, <<"t2">>, <<"other">>], <<"msg1">>},
                               {[<<"t1">>, <<"t2">>], <<"msg2">>}]),
+  timer:sleep(1000),
   kraken_client:subscribe(Socket, [<<"t1">>, <<"t2">>, <<"null">>]),
   ?assertMatch([], kraken_client:receive_messages(PublisherSock)),
   Msgs = kraken_client:receive_messages(Socket),
@@ -272,7 +265,8 @@ test_register_cutoff(PublisherSock) ->
 
 test_offline_retro_basic(PublisherSock) ->
   Socket = kraken_client:new_client(),
-  Horizon = kraken_client:get_horizon(Socket),
+  Horizon = kraken_router_shard:current_timestamp(),
+  timer:sleep(1000),
   ok = kraken_client:publish(PublisherSock,
     [{[<<"t1">>, <<"t2">>, <<"other">>], <<"msg1">>},
       {[<<"t1">>, <<"t2">>], <<"msg2">>}]),
@@ -287,17 +281,14 @@ test_offline_register_cutoff(PublisherSock) ->
   ok = kraken_client:publish(PublisherSock,
     [{[<<"t1">>, <<"t2">>, <<"other">>], <<"old1">>},
       {[<<"t1">>, <<"t2">>], <<"old2">>}]),
-  % Wait a bit for the publish to be fully done (omg!)
-  timer:sleep(100),
-  % Do another publish to force the fast cache of the horizon to update
-  ok = kraken_client:publish(PublisherSock, [{[<<"t9">>], <<"foo">>}]),
   % Wait for that to finish happening
-  timer:sleep(100),
+  timer:sleep(1000),
   % This time we'll get a horizon that is genuinely after the old publishes
-  Horizon = kraken_client:get_horizon(Socket),
+  Horizon = kraken_router_shard:current_timestamp(),
   ok = kraken_client:publish(PublisherSock,
     [{[<<"t1">>, <<"t2">>, <<"other">>], <<"msg1">>},
       {[<<"t1">>, <<"t2">>], <<"msg2">>}]),
+  timer:sleep(1000),
   kraken_client:retro_subscribe(Socket, Horizon, [<<"t1">>, <<"t2">>, <<"null">>]),
   ?assertMatch([], kraken_client:receive_messages(PublisherSock)),
   Msgs = kraken_client:receive_messages(Socket),

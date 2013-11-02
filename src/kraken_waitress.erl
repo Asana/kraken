@@ -31,9 +31,8 @@
     % The time of the last request to receive messages or the start time if
     % no requests have been made.
     last_receive_messages_time,
-    %% Contains the serial number the router shards had at the time
-    %% the client did the Register operation
-    %% {RShardPid => int()}
+    %% Contains the timestamp of the time the client did the Register operation
+    %% int
     horizon=undefined
     }).
 
@@ -99,7 +98,6 @@ handle_call(receive_messages, _From, State=#state{queue=Queue}) ->
    State#state{queue=[], last_receive_messages_time=now()}};
 
 handle_call(get_horizon, _From, State=#state{horizon=Horizon}) ->
-  %% earlier registrations get priority
   if (Horizon == undefined) ->
       {reply, none, State};
     true ->
