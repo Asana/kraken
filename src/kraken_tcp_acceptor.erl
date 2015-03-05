@@ -56,7 +56,7 @@ init(TcpServer, ListenSocket, Module) ->
           exit(normal)
       end;
     {error, closed} ->
-      log4erl:warn("Connection closed while accepting connection in tcp acceptor"),
+      log4erl:debug("Connection closed while accepting connection in tcp acceptor"),
       exit(normal);
     {error, timeout} ->
       log4erl:warn("Timeout reached in tcp acceptor"),
