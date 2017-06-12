@@ -15,8 +15,8 @@
 %%% Definitions
 %%%-----------------------------------------------------------------
 
-%% Time idle clients out after 1 hour by default.
--define(IDLE_TIMEOUT_MS, 1000 * 60 * 60).
+%% Time idle clients out after 30 minutes by default.
+-define(IDLE_TIMEOUT_MS, 1000 * 60 * 30).
 
 %%%-----------------------------------------------------------------
 %%% API
